@@ -1,0 +1,19 @@
+{
+  "name": "memeit",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel dev",
+    "dev:web": "pnpm --filter @memeit/web dev",
+    "dev:api": "pnpm --filter @memeit/render-api dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

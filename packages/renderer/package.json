@@ -1,0 +1,18 @@
+{
+  "name": "@memeit/renderer",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json"
+  },
+  "dependencies": {
+    "@memeit/timeline": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}

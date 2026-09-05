@@ -1,0 +1,30 @@
+{
+  "name": "@memeit/render-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@google-cloud/text-to-speech": "^7.0.0",
+    "@memeit/renderer": "workspace:*",
+    "@memeit/timeline": "workspace:*",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "multer": "^2.3.0",
+    "sharp": "^0.35.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^20.16.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.6.2"
+  }
+}
