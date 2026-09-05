@@ -48,7 +48,6 @@ function IconButton({
 
 export default function MediaBin() {
   const project = useEditor((s) => s.project);
-  const updateProject = useEditor((s) => s.updateProject);
   const removeClip = useEditor((s) => s.removeClip);
   const select = useEditor((s) => s.select);
   const selectedId = useEditor((s) => s.selectedId);
@@ -183,26 +182,9 @@ export default function MediaBin() {
 
       <TtsPanel />
 
-      <div className="field" style={{ marginTop: 12 }}>
-        <span>Timeline length (s)</span>
-        <input
-          className="num-input"
-          type="number"
-          min={1}
-          max={300}
-          value={project.durationMs / 1000}
-          onChange={(e) =>
-            updateProject((p) => ({
-              ...p,
-              durationMs: Math.max(1000, Math.min(300_000, Number(e.target.value) * 1000 || 10000)),
-            }))
-          }
-        />
-      </div>
-
       <div className="clip-list">
         {project.clips.length === 0 && (
-          <div style={{ color: 'var(--muted)', fontSize: 12 }}>No clips yet — drop a file anywhere to start.</div>
+          <div style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>No clips yet — drop a file anywhere to start.</div>
         )}
         {project.clips
           .slice()

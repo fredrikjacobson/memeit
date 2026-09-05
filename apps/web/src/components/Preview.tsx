@@ -106,13 +106,29 @@ export default function Preview() {
   const videoMissing = !!activeVideo && activeVideo.kind === 'video' && activeVideo.src.startsWith('missing:');
 
   const aspect = `${project.width} / ${project.height}`;
+  const ratioW = project.width / Math.max(1, project.height);
+  const ratioH = project.height / Math.max(1, project.width);
+
+  const step = (dir: 1 | -1) => {
+    const fps = project.fps || 30;
+    setPlaying(false);
+    setTime(currentTimeMs + (dir * 1000) / fps);
+  };
 
   return (
-    <div className="stage" style={{ width: '100%' }}>
+    <div className="stage preview-stage" style={{ width: '100%', height: '100%' }}>
+      <div className="preview-wrap">
       <div
         ref={frameRef}
         className="preview-frame"
-        style={{ width: 'min(100%, 380px)', maxHeight: '100%', aspectRatio: aspect, margin: '0 auto' }}
+        style={{
+          aspectRatio: aspect,
+          width: `min(100%, calc(100cqh * ${ratioW}))`,
+          height: `min(100%, calc(100cqw * ${ratioH}))`,
+          maxWidth: '100%',
+          maxHeight: '100%',
+          margin: 'auto',
+        }}
       >
         {activeVideo && activeVideo.kind === 'video' && !videoMissing ? (
           <video
@@ -143,7 +159,7 @@ export default function Preview() {
               height: '100%',
               display: 'grid',
               placeItems: 'center',
-              color: 'var(--muted)',
+              color: 'var(--muted-foreground)',
               padding: 24,
               textAlign: 'center',
               background: 'repeating-linear-gradient(45deg,#0d1119,#0d1119 12px,#11151d 12px,#11151d 24px)',
@@ -178,6 +194,7 @@ export default function Preview() {
           c.kind === 'text' ? <DraggableText key={c.id} clip={c} frameRef={frameRef} /> : null
         )}
       </div>
+      </div>
       {/* hidden audio tracks — synced to playhead in mixer effect above */}
       {audioClips.map((c) =>
         c.kind === 'audio' && !c.src.startsWith('missing:') ? (
@@ -193,9 +210,15 @@ export default function Preview() {
           />
         ) : null
       )}
-      <div className="transport">
-        <button className="play-btn" onClick={() => setPlaying(!playing)} title={playing ? 'Pause' : 'Play'}>
+      <div className="transport transport-wide">
+        <button className="play-btn" onClick={() => setPlaying(!playing)} title={playing ? 'Pause (Space)' : 'Play (Space)'}>
           {playing ? '❚❚' : '▶'}
+        </button>
+        <button className="icon-btn" onClick={() => step(-1)} title="Step back 1 frame (h / ←)">
+          ⏮
+        </button>
+        <button className="icon-btn" onClick={() => step(1)} title="Step forward 1 frame (l / →)">
+          ⏭
         </button>
         <input
           className="scrub"
@@ -209,7 +232,7 @@ export default function Preview() {
           {(currentTimeMs / 1000).toFixed(2)}s / {(project.durationMs / 1000).toFixed(1)}s
         </span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+      <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
         Drag text on canvas to move · auto-creates keyframe when moved off start
       </div>
     </div>
@@ -296,14 +319,14 @@ function DraggableText({ clip, frameRef }: { clip: TextClip; frameRef: React.Ref
         cursor: 'move',
         userSelect: 'none',
         touchAction: 'none',
-        outline: isSel ? '2px dashed var(--accent)' : 'none',
+        outline: isSel ? '2px dashed var(--accent-brand)' : 'none',
         outlineOffset: 4,
         borderRadius: 4,
       }}
     >
       {clip.text}
       {nearKf && selectedKeyframeId === nearKf.id && (
-        <span style={{ fontSize: 10, display: 'block', WebkitTextStroke: '0', textTransform: 'none', color: 'var(--accent)' }}>
+        <span style={{ fontSize: 10, display: 'block', WebkitTextStroke: '0', textTransform: 'none', color: 'var(--accent-brand)' }}>
           ◆ keyframe @{(nearKf.offsetMs / 1000).toFixed(2)}s
         </span>
       )}

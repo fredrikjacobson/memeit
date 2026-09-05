@@ -11,6 +11,8 @@ import { useEditor } from './store';
 export default function App() {
   const [dragging, setDragging] = useState(false);
   const dragCount = useRef(0);
+  const { leftW, rightW, leftOpen, rightOpen, setLeftOpen, setRightOpen, startLeftDrag, startRightDrag } =
+    usePanelLayout();
 
   const resetDrag = () => {
     dragCount.current = 0;
@@ -94,18 +96,44 @@ export default function App() {
           <TopActions />
         </div>
       </header>
-      <div className="main">
-        <div className="panel">
-          <p className="panel-title">Media</p>
-          <MediaBin />
-        </div>
-        <div className="panel stage">
+      <div className="main main-flex">
+        {!leftOpen && (
+          <button className="rail" onClick={() => setLeftOpen(true)} title="Show media panel">
+            ▸
+          </button>
+        )}
+        {leftOpen && (
+          <div className="panel panel-side" style={{ width: leftW }}>
+            <div className="panel-head">
+              <p className="panel-title">Media</p>
+              <button className="icon-btn" onClick={() => setLeftOpen(false)} title="Hide media panel">
+                ◂
+              </button>
+            </div>
+            <MediaBin />
+          </div>
+        )}
+        {leftOpen && <div className="resize-handle" onPointerDown={startLeftDrag} title="Drag to resize" />}
+        <div className="panel stage panel-center">
           <Preview />
         </div>
-        <div className="panel">
-          <p className="panel-title">Inspector</p>
-          <Inspector />
-        </div>
+        {rightOpen && <div className="resize-handle" onPointerDown={startRightDrag} title="Drag to resize" />}
+        {rightOpen && (
+          <div className="panel panel-side" style={{ width: rightW }}>
+            <div className="panel-head">
+              <p className="panel-title">Inspector</p>
+              <button className="icon-btn" onClick={() => setRightOpen(false)} title="Hide inspector panel">
+                ▸
+              </button>
+            </div>
+            <Inspector />
+          </div>
+        )}
+        {!rightOpen && (
+          <button className="rail" onClick={() => setRightOpen(true)} title="Show inspector panel">
+            ◂
+          </button>
+        )}
       </div>
       <Timeline />
       {sheet && <CheatSheet onClose={() => setSheet(false)} />}
@@ -119,6 +147,68 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function usePanelLayout() {
+  const read = (k: string, fb: number) => {
+    try {
+      const v = Number(localStorage.getItem(k));
+      return Number.isFinite(v) && v > 0 ? v : fb;
+    } catch {
+      return fb;
+    }
+  };
+  const readOpen = (k: string, fb = true) => {
+    try {
+      const v = localStorage.getItem(k);
+      return v === null ? fb : v === '1';
+    } catch {
+      return fb;
+    }
+  };
+  const [leftW, setLeftW] = useState(() => Math.min(480, Math.max(220, read('memeit-left-w', 300))));
+  const [rightW, setRightW] = useState(() => Math.min(480, Math.max(240, read('memeit-right-w', 320))));
+  const [leftOpen, setLeftOpen] = useState(() => readOpen('memeit-left-open', true));
+  const [rightOpen, setRightOpen] = useState(() => readOpen('memeit-right-open', true));
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('memeit-left-w', String(leftW));
+      localStorage.setItem('memeit-right-w', String(rightW));
+      localStorage.setItem('memeit-left-open', leftOpen ? '1' : '0');
+      localStorage.setItem('memeit-right-open', rightOpen ? '1' : '0');
+    } catch { /* ignore */ }
+  }, [leftW, rightW, leftOpen, rightOpen]);
+
+  const startDrag = (side: 'left' | 'right') => (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = side === 'left' ? leftW : rightW;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const next = side === 'left' ? startW + dx : startW - dx;
+      const clamped = Math.min(480, Math.max(side === 'left' ? 220 : 240, next));
+      if (side === 'left') setLeftW(clamped);
+      else setRightW(clamped);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return {
+    leftW,
+    rightW,
+    leftOpen,
+    rightOpen,
+    setLeftOpen,
+    setRightOpen,
+    startLeftDrag: startDrag('left'),
+    startRightDrag: startDrag('right'),
+  };
 }
 
 function TopActions() {

@@ -1,12 +1,20 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AnyClip } from '@memeit/timeline';
 import { useEditor } from '../store';
+import { slicePeaks, useWaveform } from '../lib/waveform';
 
 const COLORS: Record<string, string> = {
   video: '#5b8cff',
   image: '#9b7ff7',
   text: '#f7b84f',
   audio: '#4fd78a',
+};
+
+const TEXT_ON: Record<string, string> = {
+  video: '#ffffff',
+  image: '#ffffff',
+  text: '#3a2500',
+  audio: '#06281a',
 };
 
 const KINDS = ['video', 'image', 'text', 'audio'] as const;
@@ -35,6 +43,8 @@ function packRows(clips: AnyClip[]): Row[] {
       if (!placed) sub.push([clip]);
     }
     if (sub.length === 0) {
+      // Collapse empty lanes to save vertical space — always keep video as drop hint.
+      if (kind !== 'video') continue;
       rows.push({ kind, label: cap(kind), clips: [] });
     } else {
       sub.forEach((clipRow, i) => {
@@ -56,11 +66,100 @@ export default function Timeline() {
   const currentTimeMs = useEditor((s) => s.currentTimeMs);
   const setTime = useEditor((s) => s.setTime);
   const [zoom, setZoom] = useState(1);
+  // While a clip is being dragged/resized, freeze the lane layout captured at
+  // grab time: the dragged clip stays pinned to its origin sub-row (so
+  // horizontal moves reorder in time instead of jumping lanes), and all other
+  // clips stay exactly where they were (otherwise excluding the dragged clip
+  // lets overlapping neighbours collapse into fewer rows — the lane you
+  // grabbed visibly collapses the moment the drag starts).
+  const [dragging, setDragging] = useState<{
+    id: string;
+    kind: Kind;
+    sub: number;
+    layout: Record<string, { kind: Kind; sub: number }>;
+  } | null>(null);
+
+  const fullRows = useMemo(() => packRows(project.clips), [project.clips]);
+  const rows = useMemo(() => {
+    if (!dragging) return fullRows;
+    // Skeleton: one lane per sub-row seen at grab time (never fewer).
+    // Start empty (except video) so collapsed empty lanes stay collapsed mid-drag.
+    const counts: Record<Kind, number> = { video: 1, image: 0, text: 0, audio: 0 };
+    for (const slot of Object.values(dragging.layout)) {
+      counts[slot.kind] = Math.max(counts[slot.kind], slot.sub + 1);
+    }
+    const next: Row[] = [];
+    const flatIdx: Record<Kind, number[]> = { video: [], image: [], text: [], audio: [] };
+    const relabel = (kind: Kind) => {
+      // numbered iff >1 lane (matches packRows)
+      const n = counts[kind]!;
+      flatIdx[kind]!.forEach((fi, i) => {
+        next[fi]!.label = n > 1 ? `${cap(kind)} ${i + 1}` : cap(kind);
+      });
+    };
+    const ensure = (kind: Kind, sub: number) => {
+      while (flatIdx[kind]!.length <= sub) {
+        flatIdx[kind]!.push(next.length);
+        next.push({ kind, label: '', clips: [] });
+        counts[kind]! += 1;
+      }
+      relabel(kind);
+    };
+    for (const kind of KINDS) {
+      if (counts[kind]! > 0) ensure(kind, counts[kind]! - 1);
+    }
+    const place = (clip: AnyClip, kind: Kind, sub: number) => {
+      ensure(kind, sub);
+      next[flatIdx[kind]![sub]!]!.clips.push(clip);
+    };
+    for (const clip of project.clips) {
+      if (clip.id === dragging.id) {
+        place(clip, dragging.kind, dragging.sub);
+      } else {
+        const slot = dragging.layout[clip.id];
+        if (slot) {
+          place(clip, slot.kind, slot.sub);
+        } else {
+          // Clip added mid-drag: first fit within its kind's lanes.
+          const k = clip.kind as Kind;
+          const end = clip.startMs + clip.durationMs;
+          let s = 0;
+          for (; s < counts[k]!; s++) {
+            const row = next[flatIdx[k]![s]!]!;
+            if (!row.clips.some((o) => clip.startMs < o.startMs + o.durationMs && end > o.startMs)) break;
+          }
+          place(clip, k, s);
+        }
+      }
+    }
+    return next;
+  }, [fullRows, dragging, project.clips]);
+
+  const beginDrag = (info: { id: string; kind: Kind; sub: number }) => {
+    // Snapshot the pre-drag lane assignment so nothing moves vertically.
+    const layout: Record<string, { kind: Kind; sub: number }> = {};
+    const counters: Record<string, number> = {};
+    rows.forEach((r) => {
+      const s = counters[r.kind] ?? 0;
+      counters[r.kind] = s + 1;
+      r.clips.forEach((c) => {
+        layout[c.id] = { kind: r.kind, sub: s };
+      });
+    });
+    const own = layout[info.id] ?? { kind: info.kind, sub: info.sub };
+    setDragging({ id: info.id, kind: own.kind, sub: own.sub, layout });
+  };
 
   const pxPerSec = 8 * zoom;
   const totalWidth = Math.max(800, (project.durationMs / 1000) * pxPerSec);
-  const rows = useMemo(() => packRows(project.clips), [project.clips]);
   const contentH = 22 + rows.length * 30 + 8;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const fitZoom = () => {
+    const w = scrollRef.current?.clientWidth || 800;
+    const durSec = project.durationMs / 1000;
+    if (durSec > 0) setZoom(Math.max(0.5, Math.min(8, w / (durSec * 8))));
+  };
 
   const ticks = useMemo(() => {
     const step = zoom > 2 ? 5_000 : zoom > 1 ? 10_000 : 21_000;
@@ -71,13 +170,14 @@ export default function Timeline() {
 
   const seekPx = (e: React.MouseEvent<HTMLDivElement>) => {
     // only seek when clicking lane background, clips stopPropagation
-    // Use measured scrollWidth — .tl-content has min-width:100% so it can be
-    // wider than totalWidth on wide screens; totalWidth alone mis-maps clicks.
-    const el = e.currentTarget;
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left + el.scrollLeft;
-    const w = el.scrollWidth || totalWidth;
-    const ratio = Math.max(0, Math.min(1, x / w));
+    // Map through the content box itself — clips/ticks/playhead are all
+    // positioned as % of .tl-content, so its measured width is the exact
+    // scale (scrollWidth can over-report due to borders/scrollbars, which
+    // made seeks land short).
+    const content = e.currentTarget.querySelector('.tl-content') as HTMLElement | null;
+    const rect = (content ?? e.currentTarget).getBoundingClientRect();
+    const w = rect.width || 1;
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / w));
     setTime(ratio * project.durationMs);
   };
 
@@ -92,6 +192,7 @@ export default function Timeline() {
           <button className="btn btn-sm" onClick={() => setZoom((z) => Math.max(0.5, z / 1.5))}>−</button>
           <span style={{ fontSize: 11 }}>{zoom.toFixed(1)}x</span>
           <button className="btn btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.5))}>+</button>
+          <button className="btn btn-sm" onClick={fitZoom} title="Zoom to fit whole timeline">Fit</button>
         </div>
         <span className="tl-hint">New text/audio gets its own row · drag to move · edges to resize · double-click to delete</span>
       </div>
@@ -104,7 +205,7 @@ export default function Timeline() {
             </div>
           ))}
         </div>
-        <div className="tl-scroll" onClick={seekPx}>
+        <div className="tl-scroll" ref={scrollRef} onClick={seekPx}>
           <div className="tl-content" style={{ width: totalWidth, height: contentH }}>
             {ticks.map((t) => (
               <div key={t} className="tl-tick" style={{ left: `${(t / project.durationMs) * 100}%` }}>
@@ -112,13 +213,28 @@ export default function Timeline() {
               </div>
             ))}
             <div className="playhead" style={{ left: `${(currentTimeMs / project.durationMs) * 100}%` }} />
-            {rows.map((r, ri) => (
-              <div key={`${r.kind}-${ri}`} className="tl-lane" style={{ top: 22 + ri * 30 }}>
-                {r.clips.map((clip) => (
-                  <ClipBlock key={clip.id} clip={clip} totalWidth={totalWidth} durationMs={project.durationMs} />
-                ))}
-              </div>
-            ))}
+            {rows.map((r, ri) => {
+              // sub-row index within this kind (stable origin for pinning during drag)
+              let sub = 0;
+              for (let i = 0; i < ri; i++) if (rows[i]!.kind === r.kind) sub++;
+              return (
+                <div key={`${r.kind}-${ri}`} className="tl-lane" style={{ top: 22 + ri * 30 }}>
+                  {r.clips.map((clip) => (
+                    <ClipBlock
+                      key={clip.id}
+                      clip={clip}
+                      totalWidth={totalWidth}
+                      durationMs={project.durationMs}
+                      kind={r.kind as Kind}
+                      sub={sub}
+                      active={dragging?.id === clip.id}
+                      onDragStart={beginDrag}
+                      onDragEnd={() => setDragging(null)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -126,73 +242,116 @@ export default function Timeline() {
   );
 }
 
-function ClipBlock({ clip, totalWidth, durationMs }: { clip: AnyClip; totalWidth: number; durationMs: number }) {
+function ClipBlock({
+  clip,
+  totalWidth,
+  durationMs,
+  kind,
+  sub,
+  active,
+  onDragStart,
+  onDragEnd,
+}: {
+  clip: AnyClip;
+  totalWidth: number;
+  durationMs: number;
+  kind: Kind;
+  sub: number;
+  active: boolean;
+  onDragStart: (info: { id: string; kind: Kind; sub: number }) => void;
+  onDragEnd: () => void;
+}) {
   const selectedId = useEditor((s) => s.selectedId);
   const selectedKeyframeId = useEditor((s) => s.selectedKeyframeId);
-  const drag = useRef<{ mode: 'move' | 'l' | 'r'; startX: number; origStart: number; origDur: number } | null>(null);
-
-  const msPerPx = (el: HTMLElement) => {
-    const dur = useEditor.getState().project.durationMs;
-    const scroll = el.closest('.tl-scroll') as HTMLElement | null;
-    const w = scroll?.scrollWidth || totalWidth;
-    return dur / w;
-  };
 
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
+    e.preventDefault();
     const st = useEditor.getState();
     st.select(clip.id);
     st.setPlaying(false);
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const edge = 10;
     const mode = e.clientX - rect.left < edge ? 'l' : rect.right - e.clientX < edge ? 'r' : 'move';
-    drag.current = { mode, startX: e.clientX, origStart: clip.startMs, origDur: clip.durationMs };
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
-
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
-    e.stopPropagation();
-    const st = useEditor.getState();
-    const dxMs = (e.clientX - drag.current.startX) * msPerPx(e.currentTarget as HTMLElement);
-    const projDur = st.project.durationMs;
-    const { mode, origStart, origDur } = drag.current;
-    const MIN = 200;
-
-    if (mode === 'move') {
-      const ns = Math.max(0, Math.min(projDur - origDur, origStart + dxMs));
-      st.updateClip(clip.id, { startMs: Math.round(ns) } as never);
-    } else if (mode === 'r') {
-      const nd = Math.max(MIN, Math.min(projDur - origStart, origDur + dxMs));
-      st.updateClip(clip.id, { durationMs: Math.round(nd) } as never);
-    } else {
-      const ns = Math.max(0, Math.min(origStart + origDur - MIN, origStart + dxMs));
-      const nd = origDur - (ns - origStart);
-      st.updateClip(clip.id, { startMs: Math.round(ns), durationMs: Math.round(nd) } as never);
-    }
-  };
-
-  const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    drag.current = null;
+    const startX = e.clientX;
+    const origStart = clip.startMs;
+    const origDur = clip.durationMs;
+    const clipId = clip.id;
+    onDragStart({ id: clip.id, kind, sub });
+    // Window-level move/up so the drag survives the pinned-row remount
+    // (setting `dragging` re-parents this element, invalidating element
+    // handlers + pointer capture — so ALL move/up handling lives here).
+    // NOTE: do NOT setPointerCapture and do NOT stopPropagation on up,
+    // otherwise the window pointerup never fires and listeners leak
+    // (clip keeps following the mouse).
+    const msPerPxWin = () => {
+      // Clips are positioned as % of .tl-content, so its measured box is the
+      // exact scale. scrollWidth over-reports (borders, scrollbar, subpixel),
+      // which shrank ms-per-px and made clips lag behind the cursor.
+      const dur = useEditor.getState().project.durationMs;
+      const content = document.querySelector('.tl-content') as HTMLElement | null;
+      const w = content?.getBoundingClientRect().width || 0;
+      if (w > 0) return dur / w;
+      const scroll = document.querySelector('.tl-scroll') as HTMLElement | null;
+      return dur / (scroll?.scrollWidth || totalWidth);
+    };
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('pointermove', onWinMove);
+      window.removeEventListener('pointerup', onWinUp);
+      window.removeEventListener('pointercancel', onWinUp);
+      onDragEnd();
+    };
+    const onWinMove = (ev: PointerEvent) => {
+      const dxMs = (ev.clientX - startX) * msPerPxWin();
+      const s = useEditor.getState();
+      const projDur = s.project.durationMs;
+      const MIN = 200;
+      if (mode === 'move') {
+        const ns = Math.max(0, Math.min(projDur - origDur, origStart + dxMs));
+        s.updateClip(clipId, { startMs: Math.round(ns) } as never);
+      } else if (mode === 'r') {
+        const nd = Math.max(MIN, Math.min(projDur - origStart, origDur + dxMs));
+        s.updateClip(clipId, { durationMs: Math.round(nd) } as never);
+      } else {
+        const ns = Math.max(0, Math.min(origStart + origDur - MIN, origStart + dxMs));
+        const nd = origDur - (ns - origStart);
+        s.updateClip(clipId, { startMs: Math.round(ns), durationMs: Math.round(nd) } as never);
+      }
+    };
+    const onWinUp = () => cleanup();
+    window.addEventListener('pointermove', onWinMove);
+    window.addEventListener('pointerup', onWinUp);
+    window.addEventListener('pointercancel', onWinUp);
   };
 
   return (
     <div
       onPointerDown={onDown}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={() => useEditor.getState().removeClip(clip.id)}
-      title={`${clip.kind} — drag to move, drag edges to resize, double-click to delete`}
+      title={`${clip.kind === 'text' ? clip.text : clip.name ?? clip.id} · ${(clip.startMs / 1000).toFixed(1)}s → ${((clip.startMs + clip.durationMs) / 1000).toFixed(1)}s — drag to move, edges to resize, double-click to delete`}
       className={`tl-clip${selectedId === clip.id ? ' selected' : ''}`}
       style={{
         left: `${(clip.startMs / durationMs) * 100}%`,
         width: `${Math.max(3, (clip.durationMs / durationMs) * 100)}%`,
         background: COLORS[clip.kind],
+        color: TEXT_ON[clip.kind] ?? '#fff',
         touchAction: 'none',
+        zIndex: active ? 5 : undefined,
+        opacity: active ? 0.92 : undefined,
       }}
     >
+      {(clip.kind === 'audio' || clip.kind === 'video') && (
+        <ClipWaveform
+          src={clip.src}
+          srcOffsetMs={clip.kind === 'audio' || clip.kind === 'video' ? (clip.srcOffsetMs ?? 0) : 0}
+          durationMs={clip.durationMs}
+          dark={clip.kind === 'audio'}
+        />
+      )}
       <span className="tl-handle tl-handle-l" />
       <span className="tl-clip-label">
         {clip.kind === 'text' ? clip.text : clip.name ?? clip.id}
@@ -221,4 +380,77 @@ function ClipBlock({ clip, totalWidth, durationMs }: { clip: AnyClip; totalWidth
         })}
     </div>
   );
+}
+
+function ClipWaveform({
+  src,
+  srcOffsetMs,
+  durationMs,
+  dark,
+}: {
+  src: string;
+  srcOffsetMs: number;
+  durationMs: number;
+  dark: boolean;
+}) {
+  const data = useWaveform(src);
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !data) return;
+    let raf = 0;
+    const draw = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        // Match the backing store to the displayed size so no CSS
+        // upscaling blurs the bars (the old fixed 400px canvas stretched
+        // blurry on wide clips).
+        const cw = canvas.clientWidth;
+        const ch = canvas.clientHeight;
+        if (!cw || !ch) return;
+        const dpr = window.devicePixelRatio || 1;
+        const W = Math.max(1, Math.round(cw * dpr));
+        const H = Math.max(1, Math.round(ch * dpr));
+        if (canvas.width !== W || canvas.height !== H) {
+          canvas.width = W;
+          canvas.height = H;
+        }
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const peaks = slicePeaks(data, srcOffsetMs, durationMs);
+        ctx.clearRect(0, 0, W, H);
+        if (peaks.length === 0) return;
+        ctx.fillStyle = dark ? 'rgba(6,40,26,0.55)' : 'rgba(255,255,255,0.65)';
+        const n = peaks.length;
+        const mid = H / 2;
+        const maxH = H - 2 * dpr;
+        for (let x = 0; x < W; x++) {
+          // Max over the peaks landing on this device pixel: proper
+          // downsampling when zoomed out, no aliasing gaps when zoomed in.
+          const lo = Math.floor((x / W) * n);
+          const hi = Math.max(lo + 1, Math.ceil(((x + 1) / W) * n));
+          let p = 0;
+          for (let i = lo; i < hi && i < n; i++) {
+            const v = peaks[i] ?? 0;
+            if (v > p) p = v;
+          }
+          if (p < 0.06) p = 0.06;
+          const h = Math.max(dpr, p * maxH);
+          const y = Math.round(mid - h / 2);
+          ctx.fillRect(x, y, 1, Math.max(1, Math.round(h)));
+        }
+      });
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(canvas);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [data, srcOffsetMs, durationMs, dark]);
+
+  if (!data) return null;
+  return <canvas ref={ref} className="tl-wave" aria-hidden />;
 }

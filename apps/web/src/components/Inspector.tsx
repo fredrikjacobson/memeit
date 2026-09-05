@@ -1,6 +1,6 @@
 import { evalTextAt, uid } from '@memeit/timeline';
 import { useEditor } from '../store';
-import { findJoinPartner, focusTextEditor, joinSelectedWithNext, splitSelectedAtPlayhead } from '../lib/captions';
+import { addCaptionPersist, addSubtitleAfterLast, findJoinPartner, focusTextEditor, joinSelectedWithNext, splitSelectedAtPlayhead } from '../lib/captions';
 
 const PRESETS = [
   { label: '9:16', w: 1080, h: 1920 },
@@ -21,6 +21,13 @@ export default function Inspector() {
   const currentTimeMs = useEditor((s) => s.currentTimeMs);
 
   const clip = project.clips.find((c) => c.id === selectedId);
+  const counts = {
+    video: project.clips.filter((c) => c.kind === 'video').length,
+    image: project.clips.filter((c) => c.kind === 'image').length,
+    text: project.clips.filter((c) => c.kind === 'text').length,
+    audio: project.clips.filter((c) => c.kind === 'audio').length,
+    missing: project.clips.filter((c) => (c.kind === 'video' || c.kind === 'image' || c.kind === 'audio') && c.src.startsWith('missing:')).length,
+  };
 
   return (
     <div>
@@ -59,7 +66,40 @@ export default function Inspector() {
         </div>
       </div>
 
-      {!clip && <div style={{ color: 'var(--muted)', fontSize: 12 }}>Select a clip to edit timing, text and motion.</div>}
+      <div className="proj-box">
+        <div className="field" style={{ marginBottom: 6 }}>
+          <span>Timeline length (s)</span>
+          <input
+            className="num-input"
+            type="number"
+            min={1}
+            max={300}
+            value={project.durationMs / 1000}
+            onChange={(e) =>
+              updateProject((p) => ({
+                ...p,
+                durationMs: Math.max(1000, Math.min(300_000, Number(e.target.value) * 1000 || 10000)),
+              }))
+            }
+          />
+        </div>
+        <div className="proj-stats">
+          {counts.video} video · {counts.image} img · {counts.text} text · {counts.audio} audio
+          {counts.missing > 0 && <span className="proj-missing"> · ⚠️ {counts.missing} missing</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-sm" onClick={() => { addCaptionPersist(); focusTextEditor(); }} title="New caption at playhead (t)">T+ caption</button>
+          <button className="btn btn-sm" onClick={() => { addSubtitleAfterLast(); focusTextEditor(); }} title="Next subtitle line (s)">S+ line</button>
+        </div>
+      </div>
+
+      {!clip && (
+        <div className="empty-state">
+          <div style={{ fontSize: 22 }}>👆</div>
+          <b>Select a clip to edit timing, text and motion.</b>
+          <span>Click a row in Media or a block in the Timeline. Drag text directly on the canvas to move it.</span>
+        </div>
+      )}
 
       {clip && (
         <div>
@@ -172,7 +212,7 @@ export default function Inspector() {
     return (
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
         {(c.kind === 'audio' || c.kind === 'video') && (c.srcOffsetMs ?? 0) > 0 && (
-          <span style={{ fontSize: 11, color: 'var(--muted)', width: '100%' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)', width: '100%' }}>
             Starts {((c.srcOffsetMs ?? 0) / 1000).toFixed(2)}s into the file (cut piece)
           </span>
         )}
@@ -219,7 +259,7 @@ export default function Inspector() {
             <input type="checkbox" checked={autoKey} onChange={(e) => setAutoKey(e.target.checked)} /> auto-key on drag
           </label>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 6 }}>
           Move playhead, drag text or press add — position interpolates linearly between keys.
         </div>
         <button className="btn btn-sm btn-block" onClick={addKf}>
@@ -230,7 +270,7 @@ export default function Inspector() {
             <button className="icon-btn" title="Jump" onClick={() => { setTime(c.startMs + k.offsetMs); selectKeyframe(k.id); }}>
               ◆ {(k.offsetMs / 1000).toFixed(2)}s
             </button>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
               x{k.x.toFixed(2)} y{k.y.toFixed(2)}
             </span>
             <button

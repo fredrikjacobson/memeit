@@ -69,7 +69,7 @@ export default function TtsPanel() {
         <button className="icon-btn" onClick={() => setOpen(false)} title="Close">✕</button>
       </div>
       {unconfigured && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 6 }}>
           Server may lack Google credentials — generation will report setup steps if so.
         </div>
       )}
@@ -101,7 +101,7 @@ export default function TtsPanel() {
       <button className="btn btn-primary btn-block btn-sm" onClick={generate} disabled={!text.trim() || !!status}>
         {status ? `⏳ ${status}` : 'Generate → add as audio clip'}
       </button>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4 }}>
         {text.trim().length} chars · cached server-side in data/tts
       </div>
     </div>
