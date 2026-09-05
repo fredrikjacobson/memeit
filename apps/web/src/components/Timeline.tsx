@@ -3,7 +3,7 @@ import type { AnyClip } from '@memeit/timeline';
 import { useEditor } from '../store';
 import { slicePeaks, useWaveform } from '../lib/waveform';
 import { Button } from './ui/button';
-import { Fullscreen, Minimize } from 'lucide-react';
+import { Fullscreen } from 'lucide-react';
 
 const COLORS: Record<string, string> = {
   video: 'var(--chart-2)',
@@ -154,9 +154,7 @@ export default function Timeline() {
 
   const pxPerSec = 8 * zoom;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
   const [viewportW, setViewportW] = useState(800);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Track the scroll viewport width so content can be sized exactly to it —
   // a fixed min-width floor or stale measurement leaves a residual scrollbar.
@@ -180,26 +178,6 @@ export default function Timeline() {
     if (durSec > 0) setZoom(Math.max(0.1, Math.min(8, w / (durSec * 8))));
   };
 
-  // Fullscreen toggle — entering fullscreen auto-fits the whole timeline
-  // (the viewport ResizeObserver then keeps content sized to the screen).
-  useEffect(() => {
-    const onFs = () => {
-      const fs = document.fullscreenElement === rootRef.current;
-      setIsFullscreen(fs);
-      if (fs) requestAnimationFrame(() => fitZoom());
-    };
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
-  }, [viewportW, project.durationMs]);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => {});
-    } else {
-      void rootRef.current?.requestFullscreen().catch(() => {});
-    }
-  };
-
   const ticks = useMemo(() => {
     const step = zoom > 2 ? 5_000 : zoom > 1 ? 10_000 : 21_000;
     const out: number[] = [];
@@ -221,7 +199,7 @@ export default function Timeline() {
   };
 
   return (
-    <div ref={rootRef} className="border-t border-border bg-card px-4 pb-3 pt-2.5">
+    <div className="border-t border-border bg-card px-4 pb-3 pt-2.5">
       <div className="mb-2 flex flex-wrap items-center gap-2.5">
         <b className="text-xs">Timeline</b>
         <span className="text-xs tabular-nums text-muted-foreground">
@@ -231,7 +209,7 @@ export default function Timeline() {
           <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => setZoom((z) => Math.max(0.1, z / 1.5))}>−</Button>
           <span className="text-[11px] tabular-nums">{zoom.toFixed(1)}x</span>
           <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => setZoom((z) => Math.min(8, z * 1.5))}>+</Button>
-          <Button size="sm" variant="outline" className="h-7 px-2" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen timeline'}>{isFullscreen ? <Minimize className="size-3.5" /> : <Fullscreen className="size-3.5" />}</Button>
+          <Button size="sm" variant="outline" className="h-7 px-2" onClick={fitZoom} title="Fit timeline to screen"><Fullscreen className="size-3.5" /></Button>
         </div>
         <span className="ml-auto text-[11px] text-muted-foreground">New text/audio gets its own row · drag to move · edges to resize (audio fixed length) · double-click to delete</span>
       </div>

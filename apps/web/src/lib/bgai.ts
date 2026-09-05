@@ -67,16 +67,67 @@ export type AiJob = {
   progress: number; // 0..1 overall
   label: string;
   error?: string;
+  /** rolling average per-frame cost (ms) + ETA (ms) while processing */
+  avgFrameMs?: number;
+  etaMs?: number;
+  /** execution backend actually serving inference, e.g. 'webgpu' / 'wasm ×8' */
+  backend?: string;
 };
+
+// Per-stage totals for one run (ms, wall-clock). Sum of stage fields ≈ totalMs.
+export type AiTiming = {
+  frames: number;
+  backend: string;
+  modelLoadMs: number;
+  seekDrawMs: number;
+  inferMs: number;
+  smoothStoreMs: number;
+  audioMs: number;
+  encodeMs: number;
+  totalMs: number;
+};
+
+export const emptyTiming = (frames: number): AiTiming => ({
+  frames,
+  backend: '',
+  modelLoadMs: 0,
+  seekDrawMs: 0,
+  inferMs: 0,
+  smoothStoreMs: 0,
+  audioMs: 0,
+  encodeMs: 0,
+  totalMs: 0,
+});
+
+/** ms -> m:ss for panel readouts */
+export function formatDur(ms: number | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return '–';
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function logTiming(clipId: string, model: string, t: AiTiming): void {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+  console.info(
+    `[bgai] ${clipId} ${model} [${t.backend || 'cpu'}] ${t.frames}f in ${s(t.totalMs)} — ` +
+      `model-load ${s(t.modelLoadMs)}, seek/draw ${s(t.seekDrawMs)}, ` +
+      `infer ${s(t.inferMs)} (${(t.inferMs / Math.max(1, t.frames) / 1000).toFixed(2)}s/f), ` +
+      `smooth/store ${s(t.smoothStoreMs)}, audio ${s(t.audioMs)}, encode ${s(t.encodeMs)}`,
+  );
+}
 
 type BgAiState = {
   jobs: Record<string, AiJob>;
+  /** last completed run per clip — survives clearJob so numbers stay visible */
+  lastTiming: Record<string, AiTiming>;
   setJob: (clipId: string, patch: Partial<AiJob>) => void;
   clearJob: (clipId: string) => void;
+  setLastTiming: (clipId: string, t: AiTiming) => void;
 };
 
 export const useBgAi = create<BgAiState>((set) => ({
   jobs: {},
+  lastTiming: {},
   setJob: (clipId, patch) =>
     set((s) => {
       const prev = s.jobs[clipId];
@@ -86,6 +137,9 @@ export const useBgAi = create<BgAiState>((set) => ({
         progress: patch.progress ?? prev?.progress ?? 0,
         label: patch.label ?? prev?.label ?? '',
         error: patch.error ?? undefined,
+        avgFrameMs: patch.avgFrameMs ?? prev?.avgFrameMs,
+        etaMs: patch.etaMs ?? prev?.etaMs,
+        backend: patch.backend ?? prev?.backend,
       };
       return { jobs: { ...s.jobs, [clipId]: next } };
     }),
@@ -95,6 +149,8 @@ export const useBgAi = create<BgAiState>((set) => ({
       delete next[clipId];
       return { jobs: next };
     }),
+  setLastTiming: (clipId, t) =>
+    set((s) => ({ lastTiming: { ...s.lastTiming, [clipId]: t } })),
 }));
 
 // cooperative cancellation flags per running job
@@ -128,16 +184,85 @@ export function fileForUpload(src: string, bgAiSrc?: string): File | undefined {
   return getFileForUrl(src);
 }
 
+export type AiDeviceOpt = 'auto' | 'cpu' | 'gpu';
+export type AiDevice = 'cpu' | 'gpu';
+
+/**
+ * WebGPU trial status (Sep 2026, @imgly/background-removal 1.7.0 — latest):
+ * explicit device:'gpu' WORKS, but the first session init on a page load can
+ * fail transiently with "Failed to initialize JSEP..." (CDN chunks verified
+ * byte-identical to the pinned peer, so it's init flakiness, not packaging).
+ * Note the lib memoizes init per config (lodash memoize caches the promise),
+ * so a failed probe replays instantly for the rest of the page session —
+ * reload before judging GPU. Auto mode keeps jobs alive by falling back to
+ * CPU; explicit GPU fails loudly for a clean signal.
+ */
+export const GPU_TRIAL_ENABLED = true;
+
 export async function preloadAiModel(
   model: string = AI_DEFAULT_MODEL,
+  device: AiDevice = 'cpu',
   onProgress?: (key: string, current: number, total: number) => void,
 ): Promise<void> {
   const mod = await import('@imgly/background-removal');
   await mod.preload({
     model: model as 'isnet' | 'isnet_fp16' | 'isnet_quint8',
+    device,
     output: { format: 'image/png', quality: 0.8 },
     ...(onProgress ? { progress: onProgress } : {}),
   });
+}
+
+async function hasWebGpuAdapter(): Promise<boolean> {
+  try {
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<unknown | null> } }).gpu;
+    if (!gpu) return false;
+    return (await gpu.requestAdapter()) != null;
+  } catch {
+    return false;
+  }
+}
+
+// Pick the execution backend for a run. 'auto' probes WebGPU (warming the
+// session cache either way) and falls back to CPU; the lib alone can't be
+// trusted here — with device:'gpu' and no adapter it silently runs WASM, so
+// the adapter is verified explicitly and the real backend is reported back.
+async function resolveBackend(
+  deviceOpt: AiDeviceOpt,
+  model: string,
+  clipId: string,
+  flag: { cancelled: boolean },
+  setJob: BgAiState['setJob'],
+): Promise<{ device: AiDevice; backend: string }> {
+  const onDl = (_key: string, current: number, total: number) => {
+    if (flag.cancelled) return;
+    const p = total > 0 ? 0.03 + 0.12 * (current / total) : 0.05;
+    setJob(clipId, {
+      phase: 'loading',
+      progress: p,
+      label: `Downloading AI model… ${Math.round((current / Math.max(1, total)) * 100)}%`,
+    });
+  };
+  const cpu = async () => {
+    await preloadAiModel(model, 'cpu', onDl);
+    return { device: 'cpu' as const, backend: `wasm ×${aiThreadInfo().threads}` };
+  };
+  if (!GPU_TRIAL_ENABLED || deviceOpt === 'cpu') {
+    if (deviceOpt !== 'cpu') console.info('[bgai] WebGPU trial parked (broken upstream) — using CPU');
+    return cpu();
+  }
+  try {
+    await preloadAiModel(model, 'gpu', onDl);
+    if (await hasWebGpuAdapter()) return { device: 'gpu', backend: 'webgpu' };
+    const r = await cpu();
+    return { ...r, backend: `${r.backend} (gpu unavailable)` };
+  } catch (e) {
+    if (deviceOpt === 'gpu') {
+      throw new Error(`WebGPU init failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    console.warn('[bgai] WebGPU init failed, falling back to CPU:', e);
+    return cpu();
+  }
 }
 
 // ---------- worker plumbing ----------
@@ -152,7 +277,7 @@ type WorkerResult =
 // Raw cutout pixels (zero-copy path) or a PNG blob (fallback path).
 type SegmentOutput = { kind: 'raw'; image: ImageData } | { kind: 'png'; blob: Blob };
 
-function createSegmentWorker(model: string): Promise<Worker> {
+function createSegmentWorker(model: string, device: AiDevice = 'cpu'): Promise<Worker> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
     try {
@@ -182,7 +307,7 @@ function createSegmentWorker(model: string): Promise<Worker> {
       clearTimeout(timeout);
       reject(err instanceof ErrorEvent ? new Error(err.message) : new Error('worker error'));
     });
-    worker.postMessage({ type: 'init', model, device: 'cpu', threads: aiThreadInfo().threads });
+    worker.postMessage({ type: 'init', model, device, threads: aiThreadInfo().threads });
   });
 }
 
@@ -244,7 +369,7 @@ function rawToImageData(buf: ArrayBuffer, width: number, height: number): ImageD
 
 // main-thread fallback (same library, runs on UI thread — slower but works
 // when Workers/modules are blocked)
-async function segmentOnMainThread(frame: ImageData, model: string): Promise<SegmentOutput> {
+async function segmentOnMainThread(frame: ImageData, model: string, device: AiDevice = 'cpu'): Promise<SegmentOutput> {
   const mod = await import('@imgly/background-removal');
   const fn = (mod.default ?? mod.removeBackground) as unknown as (
     src: RgbaTensor,
@@ -259,11 +384,11 @@ async function segmentOnMainThread(frame: ImageData, model: string): Promise<Seg
   );
   if (!tensor) throw new Error('unusable frame pixels');
   try {
-    const raw = await fn(tensor, { model, device: 'cpu', output: { format: 'image/x-rgba8' } });
+    const raw = await fn(tensor, { model, device, output: { format: 'image/x-rgba8' } });
     const image = rawToImageData(await raw.arrayBuffer(), frame.width, frame.height);
     if (image) return { kind: 'raw', image };
   } catch { /* fall through to PNG */ }
-  return { kind: 'png', blob: await fn(tensor, { model, device: 'cpu', output: { format: 'image/png', quality: 0.8 } }) };
+  return { kind: 'png', blob: await fn(tensor, { model, device, output: { format: 'image/png', quality: 0.8 } }) };
 }
 
 // ---------- video helpers ----------
@@ -357,6 +482,8 @@ export type StartAiOptions = {
   smoothing?: boolean;
   /** slice camera audio into a separate timeline track (default true) */
   keepAudio?: boolean;
+  /** 'auto' probes WebGPU and falls back to CPU (default) */
+  device?: AiDeviceOpt;
 };
 
 export async function startAiBackgroundRemoval(clipId: string, opts: StartAiOptions = {}): Promise<void> {
@@ -371,8 +498,11 @@ export async function startAiBackgroundRemoval(clipId: string, opts: StartAiOpti
   const model = opts.model ?? ((clip.bgAiModel as AiModelId | undefined) ?? AI_DEFAULT_MODEL);
   const smoothing = opts.smoothing ?? true;
   const keepAudio = opts.keepAudio ?? true;
+  const deviceOpt = opts.device ?? 'auto';
   // thread pool must be set before the first session is created (preload)
   configureOrtThreads();
+  // drop any previous live job state (stale avg/ETA); lastTiming is kept
+  useBgAi.getState().clearJob(clipId);
   const flag = { cancelled: false };
   cancelFlags.set(clipId, flag);
   const setJob = useBgAi.getState().setJob;
@@ -400,10 +530,10 @@ export async function startAiBackgroundRemoval(clipId: string, opts: StartAiOpti
 
   try {
     if (clip.kind === 'image') {
-      await runImageJob(clipId, original, model, flag, setJob);
+      await runImageJob(clipId, original, model, deviceOpt, flag, setJob);
       return;
     }
-    await runVideoJob(clipId, original, model, smoothing, opts.fps, keepAudio, flag, setJob);
+    await runVideoJob(clipId, original, model, smoothing, opts.fps, keepAudio, deviceOpt, flag, setJob);
   } catch (e) {
     if (flag.cancelled) {
       st.updateClip(clipId, { bgAiStatus: 'idle', bgAiProgress: 0 } as never);
@@ -421,19 +551,28 @@ async function runImageJob(
   clipId: string,
   original: File,
   model: string,
+  deviceOpt: AiDeviceOpt,
   flag: { cancelled: boolean },
   setJob: BgAiState['setJob'],
 ) {
   const st = useEditor.getState();
+  const tStart = performance.now();
+  const T = emptyTiming(1);
   st.updateClip(clipId, { bgRemove: 'ai', bgAiStatus: 'loading', bgAiProgress: 0, bgAiModel: model, bgAiError: undefined } as never);
   setJob(clipId, { phase: 'loading', progress: 0.02, label: 'Loading AI model…' });
 
+  const tModel = performance.now();
+  const { device, backend } = await resolveBackend(deviceOpt, model, clipId, flag, setJob);
+  T.backend = backend;
+  setJob(clipId, { backend });
+  if (flag.cancelled) throw new Error('cancelled');
   let worker: Worker | null = null;
   try {
-    worker = await createSegmentWorker(model);
+    worker = await createSegmentWorker(model, device);
   } catch {
     worker = null; // main-thread fallback below
   }
+  T.modelLoadMs = performance.now() - tModel;
   if (flag.cancelled) throw new Error('cancelled');
   setJob(clipId, { phase: 'processing', progress: 0.2, label: 'Removing background…' });
   st.updateClip(clipId, { bgAiStatus: 'processing', bgAiProgress: 0.2 } as never);
@@ -451,9 +590,11 @@ async function runImageJob(
   srcBmp.close?.();
   const frame = ictx.getImageData(0, 0, iW, iH);
 
+  const tInfer = performance.now();
   const out = worker
     ? await segmentViaWorker(worker, 0, frame).finally(() => { try { worker?.terminate(); } catch { /* ignore */ } })
-    : await segmentOnMainThread(frame, model);
+    : await segmentOnMainThread(frame, model, device);
+  T.inferMs = performance.now() - tInfer;
   if (flag.cancelled) throw new Error('cancelled');
 
   let outBlob: Blob;
@@ -477,6 +618,9 @@ async function runImageJob(
     bgAiModel: model,
     bgAiError: undefined,
   } as never);
+  T.totalMs = performance.now() - tStart;
+  useBgAi.getState().setLastTiming(clipId, { ...T });
+  logTiming(clipId, model, T);
   setJob(clipId, { phase: 'done', progress: 1, label: 'Done — preview shows cutout' });
   cancelFlags.delete(clipId);
   setTimeout(() => useBgAi.getState().clearJob(clipId), 4000);
@@ -489,6 +633,7 @@ async function runVideoJob(
   smoothing: boolean,
   fpsOpt: number | undefined,
   keepAudio: boolean,
+  deviceOpt: AiDeviceOpt,
   flag: { cancelled: boolean },
   setJob: BgAiState['setJob'],
 ) {
@@ -497,6 +642,8 @@ async function runVideoJob(
   const clip0 = getClip();
   if (!clip0 || clip0.kind !== 'video') throw new Error('Clip is not a video.');
   const projectFps = st.project.fps || 30;
+  const tStart = performance.now();
+  const T = emptyTiming(0);
 
   st.updateClip(clipId, { bgRemove: 'ai', bgAiStatus: 'loading', bgAiProgress: 0, bgAiModel: model, bgAiError: undefined } as never);
   setJob(clipId, { phase: 'loading', progress: 0.01, label: 'Loading video…' });
@@ -532,29 +679,33 @@ async function runVideoJob(
     // Extract camera audio up front (fast offline decode, runs in parallel
     // with segmentation). The cutout WebM is video-only, so the audio comes
     // back as a separate timeline track at the end.
+    const tAudioStart = performance.now();
     const audioPromise: Promise<{ blob: Blob; durationMs: number } | null> = keepAudio
-      ? extractAudioSlice(original, srcOffsetMs, durationMs).catch((e) => {
-        console.warn('[bgai] audio extraction failed:', e);
-        return null;
-      })
+      ? extractAudioSlice(original, srcOffsetMs, durationMs)
+        .then((r) => {
+          T.audioMs = performance.now() - tAudioStart;
+          return r;
+        })
+        .catch((e) => {
+          console.warn('[bgai] audio extraction failed:', e);
+          return null;
+        })
       : Promise.resolve(null);
 
-    // worker (preferred) or main-thread fallback
+    // backend probe (warms the session cache) + worker (preferred)
     setJob(clipId, { phase: 'loading', progress: 0.03, label: 'Loading AI model (~40-170MB first run)…' });
+    const tModel = performance.now();
+    const { device, backend } = await resolveBackend(deviceOpt, model, clipId, flag, setJob);
+    T.backend = backend;
+    setJob(clipId, { backend });
     let worker: Worker | null = null;
     try {
-      // warm the model cache with progress surfaced on the model-download
-      // phase (first run downloads; later runs are instant)
-      await preloadAiModel(model, (_key, current, total) => {
-        if (flag.cancelled) return;
-        const p = total > 0 ? 0.03 + 0.12 * (current / total) : 0.05;
-        setJob(clipId, { phase: 'loading', progress: p, label: `Downloading AI model… ${Math.round((current / Math.max(1, total)) * 100)}%` });
-      });
-      worker = await createSegmentWorker(model);
+      worker = await createSegmentWorker(model, device);
     } catch (e) {
       console.warn('[bgai] worker unavailable, using main thread:', e);
       worker = null;
     }
+    T.modelLoadMs = performance.now() - tModel;
     if (flag.cancelled) throw new Error('cancelled');
 
     const frameCanvas = document.createElement('canvas');
@@ -573,37 +724,36 @@ async function runVideoJob(
     for (let i = 0; i < nFrames; i++) {
       if (flag.cancelled) throw new Error('cancelled');
       const tSec = (srcOffsetMs + (i * 1000) / fps) / 1000;
+      const tSeek = performance.now();
       await seekTo(video, tSec);
       fctx.clearRect(0, 0, W, H);
       fctx.drawImage(video, 0, 0, W, H);
       // raw pixels, zero-copy into the worker — no PNG encode on the way in.
       // (the buffer is transferred, so re-read from the canvas if we retry)
       const frame = fctx.getImageData(0, 0, W, H);
-
-      setJob(clipId, {
-        phase: 'processing',
-        progress: 0.15 + 0.7 * (i / nFrames),
-        label: `Cutting out… frame ${i + 1}/${nFrames}`,
-      });
+      T.seekDrawMs += performance.now() - tSeek;
 
       let out: SegmentOutput;
+      const tInfer = performance.now();
       try {
-        out = worker ? await segmentViaWorker(worker, i, frame) : await segmentOnMainThread(frame, model);
+        out = worker ? await segmentViaWorker(worker, i, frame) : await segmentOnMainThread(frame, model, device);
       } catch (e) {
         // worker died mid-job (e.g. OOM) — fall back to main thread once
         if (worker) {
           try { worker.terminate(); } catch { /* ignore */ }
           worker = null;
-          out = await segmentOnMainThread(fctx.getImageData(0, 0, W, H), model);
+          out = await segmentOnMainThread(fctx.getImageData(0, 0, W, H), model, device);
         } else {
           throw e;
         }
       }
+      T.inferMs += performance.now() - tInfer;
       if (flag.cancelled) throw new Error('cancelled');
 
       // Composite the cutout, smooth alpha against the previous frame, and
       // store one PNG per frame for the realtime encode pass. PNG decode only
       // happens on the fallback path — raw pixels go straight to the canvas.
+      const tStore = performance.now();
       if (out.kind === 'raw') {
         octx.putImageData(out.image, 0, 0);
       } else {
@@ -615,6 +765,7 @@ async function runVideoJob(
         } catch {
           // undecodable PNG — keep the pixels as-is rather than failing the job
           cutouts.push(out.blob);
+          T.smoothStoreMs += performance.now() - tStore;
           st.updateClip(clipId, { bgAiProgress: 0.15 + 0.7 * ((i + 1) / nFrames) } as never);
           continue;
         }
@@ -626,7 +777,19 @@ async function runVideoJob(
       }
       prev = octx.getImageData(0, 0, W, H);
       cutouts.push(await canvasToPngBlob(outCanvas));
-      st.updateClip(clipId, { bgAiProgress: 0.15 + 0.7 * ((i + 1) / nFrames) } as never);
+      T.smoothStoreMs += performance.now() - tStore;
+
+      const done = i + 1;
+      const avg = (T.seekDrawMs + T.inferMs + T.smoothStoreMs) / done;
+      setJob(clipId, {
+        phase: 'processing',
+        progress: 0.15 + 0.7 * (done / nFrames),
+        label: `Cutting out… frame ${done}/${nFrames}`,
+        avgFrameMs: avg,
+        // encode pass replays in realtime, so remaining frames + clip length
+        etaMs: avg * (nFrames - done) + durationMs,
+      });
+      st.updateClip(clipId, { bgAiProgress: 0.15 + 0.7 * (done / nFrames) } as never);
     }
 
     if (worker) {
@@ -653,6 +816,7 @@ async function runVideoJob(
       recorder.onerror = () => reject(new Error('WebM recording failed.'));
       recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
     });
+    const tEnc = performance.now();
     recorder.start(250);
 
     const frameMs = 1000 / fps;
@@ -676,6 +840,7 @@ async function runVideoJob(
     await new Promise((r) => setTimeout(r, Math.max(300, frameMs * 2)));
     recorder.stop();
     const webm = await recorded;
+    T.encodeMs = performance.now() - tEnc;
     for (const t of stream.getTracks()) t.stop();
     if (flag.cancelled) throw new Error('cancelled');
     if (!webm.size) throw new Error('Encoding produced an empty file.');
@@ -706,6 +871,11 @@ async function runVideoJob(
       }
     }
     if (flag.cancelled) throw new Error('cancelled');
+
+    T.frames = nFrames;
+    T.totalMs = performance.now() - tStart;
+    useBgAi.getState().setLastTiming(clipId, { ...T });
+    logTiming(clipId, model, T);
 
     setJob(clipId, {
       phase: 'done',

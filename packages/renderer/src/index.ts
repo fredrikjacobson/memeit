@@ -47,16 +47,27 @@ export function buildFfmpegArgs(
   // seekMs applies `-ss` *before* `-i` (fast input seek into cut pieces)
   const idxOf = new Map<string, number>();
   let idx = 0;
-  const pushInput = (key: string, path: string, loopImage: boolean, seekMs = 0) => {
+  const pushInput = (key: string, path: string, loopImage: boolean, seekMs = 0, decoder?: string) => {
     if (seekMs > 0) args.push('-ss', (seekMs / 1000).toFixed(3));
     if (loopImage) args.push('-loop', '1');
+    if (decoder) args.push('-c:v', decoder);
     args.push('-i', path);
     idxOf.set(key, idx);
     idx += 1;
   };
 
+  // AI cutouts are Chrome-encoded VP9+alpha: ffmpeg's native vp9 decoder drops
+  // the alpha plane (subject renders fully opaque), libvpx's reads it
+  // (verified: a 25%-alpha box composites to (62,1,0), matching the browser).
+  const baseIsAi = !!baseClip && baseClip.bgRemove === 'ai' && byId.has(baseClip.id);
   if (baseClip && byId.has(baseClip.id)) {
-    pushInput(`video:${baseClip.id}`, byId.get(baseClip.id)!.path, false, baseClip.srcOffsetMs ?? 0);
+    pushInput(
+      `video:${baseClip.id}`,
+      byId.get(baseClip.id)!.path,
+      false,
+      baseClip.srcOffsetMs ?? 0,
+      baseIsAi ? 'libvpx-vp9' : undefined,
+    );
   }
   for (const c of images) {
     const a = byId.get(c.id);

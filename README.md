@@ -10,6 +10,17 @@ pnpm --filter @memeit/render-api dev  # :3001
 pnpm --filter @memeit/web dev          # :5173
 ```
 
+## Run as one server (`npx memeit`)
+
+```bash
+pnpm --filter memeit build
+node packages/memeit/dist/cli.js --no-open   # serves API + built UI on :3001
+# after `npm publish`: npx memeit
+```
+
+Publishable package in `packages/memeit/` (`bin: memeit`, tsup bundle + embedded
+`apps/web` build). Details: `packages/memeit/README.md`.
+
 ## Flow
 
 1. Import video/image/audio in MediaBin (preview via blob URLs).

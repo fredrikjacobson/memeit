@@ -25,13 +25,14 @@ export const CURATED_VOICES = [
   { name: 'sv-SE-Standard-A', languageCode: 'sv-SE', label: 'Swedish Standard A' },
 ];
 
-function cachePath(key: string): string {
-  const dir = join('data', 'tts');
+function cachePath(dataDir: string, key: string): string {
+  const dir = join(dataDir, 'tts');
   mkdirSync(dir, { recursive: true });
   return join(dir, `${key}.mp3`);
 }
 
-export const ttsRouter = Router();
+export function createTtsRouter(dataDir: string): Router {
+const ttsRouter = Router();
 ttsRouter.use(express.json({ limit: '32kb' }));
 
 ttsRouter.get('/api/voices', async (_req, res) => {
@@ -66,7 +67,7 @@ ttsRouter.post('/api/tts', async (req, res) => {
 
   const isChirp = /chirp/i.test(voiceName);
   const key = createHash('sha1').update(`${voiceName}|${languageCode}|${speakingRate}|${text}`).digest('hex');
-  const cached = cachePath(key);
+  const cached = cachePath(dataDir, key);
   if (existsSync(cached)) {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('X-TTS-Cache', 'HIT');
@@ -103,3 +104,8 @@ ttsRouter.post('/api/tts', async (req, res) => {
     res.status(503).json({ error: `TTS failed: ${msg}.${hint}` });
   }
 });
+  return ttsRouter;
+}
+
+// Back-compat for existing dev entry (uses cwd ./data).
+export const ttsRouter = createTtsRouter(join(process.cwd(), 'data'));
