@@ -1,0 +1,46 @@
+{
+  "name": "memeit",
+  "version": "0.1.0",
+  "description": "Meme video editor — local single-user server + web UI. Run with `npx memeit`.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "memeit": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:server": "tsup",
+    "build:ui": "node scripts/build-ui.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/cli.ts --port 3001 --no-open",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "multer": "^2.3.0",
+    "sharp": "^0.35.4",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@google-cloud/text-to-speech": "^7.0.0"
+  },
+  "devDependencies": {
+    "@memeit/renderer": "workspace:*",
+    "@memeit/timeline": "workspace:*",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^20.16.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.6.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,45 @@
+# memeit (npx distribution)
+
+Local meme video editor — one command runs the API + web UI:
+
+```bash
+npx memeit
+npx memeit --port 4200 --no-open
+npx memeit --data-dir ~/.memeit-data
+```
+
+## How it works
+
+* `src/cli.ts` parses args, checks `ffmpeg`/`yt-dlp`, then starts the Express app from
+  `services/render-api/src/app.ts` via `createApp({ dataDir, publicDir })`.
+* The web UI is the production `apps/web` build, copied to `public/` at build time
+  (`scripts/build-ui.mjs`) and served with the COOP/COEP headers the WASM background
+  removal needs. Non-`/api` GETs fall back to `index.html` (SPA).
+* `tsup` bundles `src/cli.ts` + `services/render-api/src` + `@memeit/*` workspace
+  packages into a single `dist/cli.js`. Runtime npm deps stay external
+  (`express`, `sharp`, `zod`, …); `@google-cloud/text-to-speech` is optional
+  (dynamically imported — TTS endpoints 503 with a hint when unconfigured).
+
+## Build / publish
+
+```bash
+pnpm install
+pnpm --filter memeit build        # web UI -> public/, server -> dist/cli.js
+pnpm --filter memeit typecheck
+npm publish --workspace packages/memeit --access public   # name: memeit
+```
+
+Test the tarball locally before publishing:
+
+```bash
+pnpm --filter memeit build
+npm pack --workspace packages/memeit --pack-destination /tmp
+npx --yes /tmp/memeit-0.1.0.tgz --help
+```
+
+## System deps (not bundled)
+
+* `ffmpeg` + `ffprobe` on `PATH` — required for renders (`brew install ffmpeg`).
+  Missing binary warns at startup and `/api/health` reports it.
+* `yt-dlp` on `PATH` or `$YTDLP_PATH` — optional, only for YouTube import.
+  The macOS-only `bin/yt-dlp` in this repo is dev-only (git-ignored) and is NOT shipped.

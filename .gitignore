@@ -2,8 +2,10 @@
 node_modules/
 dist/
 data/
+bin/
 *.local
 
 apps/*/dist/
 services/*/dist/
 packages/*/dist/
+packages/memeit/public/
