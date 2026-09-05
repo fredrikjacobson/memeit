@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { evalTextAt, isClipActiveAt, nearestKeyframe, uid, type TextClip } from '@memeit/timeline';
 import { useEditor } from '../store';
+import { Button } from './ui/button';
+import { Slider } from './ui/slider';
 
 export default function Preview() {
   const project = useEditor((s) => s.project);
@@ -116,11 +118,11 @@ export default function Preview() {
   };
 
   return (
-    <div className="stage preview-stage" style={{ width: '100%', height: '100%' }}>
-      <div className="preview-wrap">
+    <div className="flex h-full w-full flex-col items-center gap-2.5 overflow-auto" style={{ width: '100%', height: '100%' }}>
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden" style={{ containerType: 'size' } as CSSProperties}>
       <div
         ref={frameRef}
-        className="preview-frame"
+        className="relative m-auto max-h-full max-w-full overflow-hidden rounded-[14px] border border-border bg-black shadow-2xl"
         style={{
           aspectRatio: aspect,
           width: `min(100%, calc(100cqh * ${ratioW}))`,
@@ -142,7 +144,7 @@ export default function Preview() {
           <div
             style={{
               width: '100%', height: '100%', display: 'grid', placeItems: 'center',
-              color: 'var(--danger)', padding: 24, textAlign: 'center', background: '#0d1119',
+              color: 'var(--destructive)', padding: 24, textAlign: 'center', background: 'var(--muted)',
             }}
           >
             <div>
@@ -162,7 +164,7 @@ export default function Preview() {
               color: 'var(--muted-foreground)',
               padding: 24,
               textAlign: 'center',
-              background: 'repeating-linear-gradient(45deg,#0d1119,#0d1119 12px,#11151d 12px,#11151d 24px)',
+              background: 'repeating-linear-gradient(45deg,var(--muted),var(--muted) 12px,var(--card) 12px,var(--card) 24px)',
             }}
           >
             <div>
@@ -210,29 +212,29 @@ export default function Preview() {
           />
         ) : null
       )}
-      <div className="transport transport-wide">
-        <button className="play-btn" onClick={() => setPlaying(!playing)} title={playing ? 'Pause (Space)' : 'Play (Space)'}>
+      <div className="flex w-full max-w-[560px] items-center gap-2.5 rounded-full border border-border bg-card px-3.5 py-1.5">
+        <Button size="icon" className="h-8 w-8 shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90" onClick={() => setPlaying(!playing)} title={playing ? 'Pause (Space)' : 'Play (Space)'}>
           {playing ? '❚❚' : '▶'}
-        </button>
-        <button className="icon-btn" onClick={() => step(-1)} title="Step back 1 frame (h / ←)">
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => step(-1)} title="Step back 1 frame (h / ←)">
           ⏮
-        </button>
-        <button className="icon-btn" onClick={() => step(1)} title="Step forward 1 frame (l / →)">
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => step(1)} title="Step forward 1 frame (l / →)">
           ⏭
-        </button>
-        <input
-          className="scrub"
-          type="range"
+        </Button>
+        <Slider
+          className="min-w-[80px] flex-1"
           min={0}
           max={project.durationMs}
-          value={currentTimeMs}
-          onChange={(e) => setTime(Number(e.target.value))}
+          step={1}
+          value={[currentTimeMs]}
+          onValueChange={([v]) => setTime(v ?? 0)}
         />
-        <span className="time">
+        <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
           {(currentTimeMs / 1000).toFixed(2)}s / {(project.durationMs / 1000).toFixed(1)}s
         </span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+      <div className="text-[11px] text-muted-foreground">
         Drag text on canvas to move · auto-creates keyframe when moved off start
       </div>
     </div>
@@ -319,14 +321,14 @@ function DraggableText({ clip, frameRef }: { clip: TextClip; frameRef: React.Ref
         cursor: 'move',
         userSelect: 'none',
         touchAction: 'none',
-        outline: isSel ? '2px dashed var(--accent-brand)' : 'none',
+        outline: isSel ? '2px dashed var(--ring)' : 'none',
         outlineOffset: 4,
         borderRadius: 4,
       }}
     >
       {clip.text}
       {nearKf && selectedKeyframeId === nearKf.id && (
-        <span style={{ fontSize: 10, display: 'block', WebkitTextStroke: '0', textTransform: 'none', color: 'var(--accent-brand)' }}>
+        <span style={{ fontSize: 10, display: 'block', WebkitTextStroke: '0', textTransform: 'none', color: 'var(--ring)' }}>
           ◆ keyframe @{(nearKf.offsetMs / 1000).toFixed(2)}s
         </span>
       )}

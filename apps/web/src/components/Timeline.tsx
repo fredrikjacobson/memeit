@@ -2,19 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AnyClip } from '@memeit/timeline';
 import { useEditor } from '../store';
 import { slicePeaks, useWaveform } from '../lib/waveform';
+import { Button } from './ui/button';
+import { RotateCcw } from 'lucide-react';
 
 const COLORS: Record<string, string> = {
-  video: '#5b8cff',
-  image: '#9b7ff7',
-  text: '#f7b84f',
-  audio: '#4fd78a',
+  video: 'var(--chart-2)',
+  image: 'var(--chart-4)',
+  text: 'var(--chart-1)',
+  audio: 'var(--chart-3)',
 };
 
 const TEXT_ON: Record<string, string> = {
-  video: '#ffffff',
-  image: '#ffffff',
-  text: '#3a2500',
-  audio: '#06281a',
+  video: 'var(--foreground)',
+  image: 'var(--foreground)',
+  text: 'var(--background)',
+  audio: 'var(--background)',
 };
 
 const KINDS = ['video', 'image', 'text', 'audio'] as const;
@@ -151,14 +153,29 @@ export default function Timeline() {
   };
 
   const pxPerSec = 8 * zoom;
-  const totalWidth = Math.max(800, (project.durationMs / 1000) * pxPerSec);
-  const contentH = 22 + rows.length * 30 + 8;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewportW, setViewportW] = useState(800);
+
+  // Track the scroll viewport width so content can be sized exactly to it —
+  // a fixed min-width floor or stale measurement leaves a residual scrollbar.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewportW(el.clientWidth || 800);
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth || 800));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Never narrower than the viewport (minus a 2px epsilon for subpixel
+  // rounding, which otherwise brings back a tiny scrollbar right after fit).
+  const totalWidth = Math.max(viewportW - 2, (project.durationMs / 1000) * pxPerSec);
+  const contentH = 22 + rows.length * 30 + 8;
 
   const fitZoom = () => {
-    const w = scrollRef.current?.clientWidth || 800;
+    const w = (scrollRef.current?.clientWidth || viewportW || 800) - 2;
     const durSec = project.durationMs / 1000;
-    if (durSec > 0) setZoom(Math.max(0.5, Math.min(8, w / (durSec * 8))));
+    if (durSec > 0) setZoom(Math.max(0.1, Math.min(8, w / (durSec * 8))));
   };
 
   const ticks = useMemo(() => {
@@ -182,25 +199,25 @@ export default function Timeline() {
   };
 
   return (
-    <div className="timeline">
-      <div className="tl-bar">
-        <b style={{ fontSize: 12 }}>Timeline</b>
-        <span className="time">
+    <div className="border-t border-border bg-card px-4 pb-3 pt-2.5">
+      <div className="mb-2 flex flex-wrap items-center gap-2.5">
+        <b className="text-xs">Timeline</b>
+        <span className="text-xs tabular-nums text-muted-foreground">
           {(currentTimeMs / 1000).toFixed(2)}s / {(project.durationMs / 1000).toFixed(1)}s · {project.clips.length} clips
         </span>
-        <div className="zoom">
-          <button className="btn btn-sm" onClick={() => setZoom((z) => Math.max(0.5, z / 1.5))}>−</button>
-          <span style={{ fontSize: 11 }}>{zoom.toFixed(1)}x</span>
-          <button className="btn btn-sm" onClick={() => setZoom((z) => Math.min(8, z * 1.5))}>+</button>
-          <button className="btn btn-sm" onClick={fitZoom} title="Zoom to fit whole timeline">Fit</button>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => setZoom((z) => Math.max(0.1, z / 1.5))}>−</Button>
+          <span className="text-[11px] tabular-nums">{zoom.toFixed(1)}x</span>
+          <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => setZoom((z) => Math.min(8, z * 1.5))}>+</Button>
+          <Button size="sm" variant="outline" className="h-7 px-2" onClick={fitZoom} title="Reset zoom to fit whole timeline"><RotateCcw className="size-3.5" /></Button>
         </div>
-        <span className="tl-hint">New text/audio gets its own row · drag to move · edges to resize · double-click to delete</span>
+        <span className="ml-auto text-[11px] text-muted-foreground">New text/audio gets its own row · drag to move · edges to resize (audio fixed length) · double-click to delete</span>
       </div>
-      <div className="tl-body">
-        <div className="tl-lanes">
+      <div className="grid gap-2" style={{ gridTemplateColumns: '76px 1fr' }}>
+        <div className="flex flex-col overflow-hidden pt-[22px]">
           {rows.map((r, i) => (
-            <div key={`${r.kind}-${i}`} className="tl-lane-label" title={r.kind}>
-              <span className="dot" style={{ background: COLORS[r.kind], width: 7, height: 7 }} />
+            <div key={`${r.kind}-${i}`} className="flex h-[30px] items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px] font-bold text-muted-foreground" title={r.kind}>
+              <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: COLORS[r.kind] }} />
               {r.label}
             </div>
           ))}
@@ -272,7 +289,9 @@ function ClipBlock({
     st.setPlaying(false);
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const edge = 10;
-    const mode = e.clientX - rect.left < edge ? 'l' : rect.right - e.clientX < edge ? 'r' : 'move';
+    // Audio clips have fixed length tied to the source file — disable edge resize.
+    const resizable = clip.kind !== 'audio';
+    const mode = !resizable ? 'move' : e.clientX - rect.left < edge ? 'l' : rect.right - e.clientX < edge ? 'r' : 'move';
     const startX = e.clientX;
     const origStart = clip.startMs;
     const origDur = clip.durationMs;
@@ -332,13 +351,13 @@ function ClipBlock({
       onPointerDown={onDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={() => useEditor.getState().removeClip(clip.id)}
-      title={`${clip.kind === 'text' ? clip.text : clip.name ?? clip.id} · ${(clip.startMs / 1000).toFixed(1)}s → ${((clip.startMs + clip.durationMs) / 1000).toFixed(1)}s — drag to move, edges to resize, double-click to delete`}
+      title={`${clip.kind === 'text' ? clip.text : clip.name ?? clip.id} · ${(clip.startMs / 1000).toFixed(1)}s → ${((clip.startMs + clip.durationMs) / 1000).toFixed(1)}s — drag to move${clip.kind === 'audio' ? ' (fixed length)' : ', edges to resize'}, double-click to delete`}
       className={`tl-clip${selectedId === clip.id ? ' selected' : ''}`}
       style={{
         left: `${(clip.startMs / durationMs) * 100}%`,
         width: `${Math.max(3, (clip.durationMs / durationMs) * 100)}%`,
         background: COLORS[clip.kind],
-        color: TEXT_ON[clip.kind] ?? '#fff',
+        color: TEXT_ON[clip.kind] ?? 'var(--foreground)',
         touchAction: 'none',
         zIndex: active ? 5 : undefined,
         opacity: active ? 0.92 : undefined,
@@ -352,11 +371,15 @@ function ClipBlock({
           dark={clip.kind === 'audio'}
         />
       )}
-      <span className="tl-handle tl-handle-l" />
       <span className="tl-clip-label">
         {clip.kind === 'text' ? clip.text : clip.name ?? clip.id}
       </span>
-      <span className="tl-handle tl-handle-r" />
+      {clip.kind !== 'audio' && (
+        <>
+          <span className="tl-handle tl-handle-l" />
+          <span className="tl-handle tl-handle-r" />
+        </>
+      )}
       {clip.kind === 'text' &&
         (clip.keyframes ?? []).map((k) => {
           const abs = clip.startMs + k.offsetMs;
@@ -421,7 +444,7 @@ function ClipWaveform({
         const peaks = slicePeaks(data, srcOffsetMs, durationMs);
         ctx.clearRect(0, 0, W, H);
         if (peaks.length === 0) return;
-        ctx.fillStyle = dark ? 'rgba(6,40,26,0.55)' : 'rgba(255,255,255,0.65)';
+        ctx.fillStyle = dark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.65)';
         const n = peaks.length;
         const mid = H / 2;
         const maxH = H - 2 * dpr;

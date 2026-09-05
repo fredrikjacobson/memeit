@@ -4,6 +4,10 @@ import Timeline from './components/Timeline';
 import MediaBin from './components/MediaBin';
 import Inspector from './components/Inspector';
 import CheatSheet from './components/CheatSheet';
+import Logo from './components/Logo';
+import { Button } from './components/ui/button';
+import { Card } from './components/ui/card';
+import { Keyboard } from 'lucide-react';
 import { addMediaFiles } from './lib/media';
 import { handleShortcut } from './lib/keys';
 import { useEditor } from './store';
@@ -62,7 +66,7 @@ export default function App() {
 
   return (
     <div
-      className="app"
+      className="flex h-screen flex-col bg-background"
       onDragEnter={(e) => {
         e.preventDefault();
         if (!e.dataTransfer.types.includes('Files')) return;
@@ -86,66 +90,74 @@ export default function App() {
         if (e.dataTransfer.files?.length) void addMediaFiles(e.dataTransfer.files);
       }}
     >
-      <header className="topbar">
-        <div className="logo">
-          <span className="logo-mark">🎭</span> memeit
+      <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-2.5">
+        <div className="flex items-center gap-2 text-[15px] font-extrabold tracking-tight">
+          <Logo size={26} /> memeit
         </div>
-        <span className="topbar-sub">meme video editor · 10s clips, up to 3 min · <kbd>?</kbd> shortcuts</span>
-        <div className="topbar-right">
-          <button className="btn btn-ghost btn-sm" onClick={() => setSheet((v) => !v)} title="Keyboard shortcuts (?)">⌨</button>
+        <span className="text-xs text-muted-foreground">meme video editor · 10s clips, up to 3 min · <Kbd>?</Kbd> shortcuts</span>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => setSheet((v) => !v)} title="Keyboard shortcuts (?)"><Keyboard className="size-5" /></Button>
           <TopActions />
         </div>
       </header>
-      <div className="main main-flex">
+      <div className="flex min-h-0 flex-1 items-stretch gap-2 p-3">
         {!leftOpen && (
-          <button className="rail" onClick={() => setLeftOpen(true)} title="Show media panel">
+          <Button variant="ghost" size="icon" className="h-auto w-7 shrink-0 rounded-lg border border-border" onClick={() => setLeftOpen(true)} title="Show media panel">
             ▸
-          </button>
+          </Button>
         )}
         {leftOpen && (
-          <div className="panel panel-side" style={{ width: leftW }}>
-            <div className="panel-head">
-              <p className="panel-title">Media</p>
-              <button className="icon-btn" onClick={() => setLeftOpen(false)} title="Hide media panel">
+          <Card className="flex min-h-0 w-auto min-w-0 shrink-0 flex-col overflow-auto p-3" style={{ width: leftW }}>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Media</p>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setLeftOpen(false)} title="Hide media panel">
                 ◂
-              </button>
+              </Button>
             </div>
             <MediaBin />
-          </div>
+          </Card>
         )}
-        {leftOpen && <div className="resize-handle" onPointerDown={startLeftDrag} title="Drag to resize" />}
-        <div className="panel stage panel-center">
+        {leftOpen && <div className="w-2 shrink-0 cursor-col-resize rounded hover:bg-accent" onPointerDown={startLeftDrag} title="Drag to resize" />}
+        <Card className="flex min-h-0 min-w-0 flex-1 items-stretch overflow-auto p-3">
           <Preview />
-        </div>
-        {rightOpen && <div className="resize-handle" onPointerDown={startRightDrag} title="Drag to resize" />}
+        </Card>
+        {rightOpen && <div className="w-2 shrink-0 cursor-col-resize rounded hover:bg-accent" onPointerDown={startRightDrag} title="Drag to resize" />}
         {rightOpen && (
-          <div className="panel panel-side" style={{ width: rightW }}>
-            <div className="panel-head">
-              <p className="panel-title">Inspector</p>
-              <button className="icon-btn" onClick={() => setRightOpen(false)} title="Hide inspector panel">
+          <Card className="flex min-h-0 w-auto min-w-0 shrink-0 flex-col overflow-auto p-3" style={{ width: rightW }}>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Inspector</p>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setRightOpen(false)} title="Hide inspector panel">
                 ▸
-              </button>
+              </Button>
             </div>
             <Inspector />
-          </div>
+          </Card>
         )}
         {!rightOpen && (
-          <button className="rail" onClick={() => setRightOpen(true)} title="Show inspector panel">
+          <Button variant="ghost" size="icon" className="h-auto w-7 shrink-0 rounded-lg border border-border" onClick={() => setRightOpen(true)} title="Show inspector panel">
             ◂
-          </button>
+          </Button>
         )}
       </div>
       <Timeline />
       {sheet && <CheatSheet onClose={() => setSheet(false)} />}
       {dragging && (
-        <div className="drop-overlay">
-          <div className="drop-card">
-            <h2>Drop to import</h2>
-            <p>Video · Image · Audio — released files go straight to the timeline</p>
-          </div>
+        <div className="pointer-events-none fixed inset-3 z-50 grid place-items-center rounded-2xl border-2 border-dashed border-ring bg-background/80 backdrop-blur-sm">
+          <Card className="p-6 px-8 text-center">
+            <h2 className="mb-1.5 text-lg font-bold">Drop to import</h2>
+            <p className="m-0 text-muted-foreground">Video · Image · Audio — released files go straight to the timeline</p>
+          </Card>
         </div>
       )}
     </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="whitespace-nowrap rounded-md border border-border border-b-2 bg-background px-1.5 py-px font-[inherit] text-[11px]">
+      {children}
+    </kbd>
   );
 }
 
@@ -245,16 +257,16 @@ function TopActions() {
   };
   return (
     <>
-      <span className="time">{busy ?? ''}</span>
-      <button className="btn btn-ghost btn-sm" onClick={newProject} disabled={!!busy} title="Clear timeline and start fresh">
+      <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">{busy ?? ''}</span>
+      <Button variant="ghost" size="sm" onClick={newProject} disabled={!!busy} title="Clear timeline and start fresh">
         New
-      </button>
-      <button className="btn btn-ghost btn-sm" onClick={exportJson} disabled={!!busy}>
+      </Button>
+      <Button variant="ghost" size="sm" onClick={exportJson} disabled={!!busy}>
         Export JSON
-      </button>
-      <button className="btn btn-primary btn-sm" onClick={render} disabled={!!busy}>
+      </Button>
+      <Button size="sm" onClick={render} disabled={!!busy}>
         {busy ? '⏳ Rendering…' : '⬇ Render MP4'}
-      </button>
+      </Button>
     </>
   );
 }

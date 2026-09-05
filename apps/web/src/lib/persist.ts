@@ -38,6 +38,15 @@ export function loadProjectLocal(): Project | null {
   }
 }
 
+// Grow the timeline to cover all clips (capped). Repairs projects where a
+// clip — e.g. an audio file longer than the timeline — overflows it and gets
+// pinned at 0 by the timeline move clamp, making it undraggable.
+export function fitProjectToClips(project: Project): Project {
+  const maxEnd = project.clips.reduce((m, c) => Math.max(m, c.startMs + c.durationMs), 0);
+  if (maxEnd <= project.durationMs) return project;
+  return { ...project, durationMs: Math.min(300_000, maxEnd) };
+}
+
 // Turn asset: refs back into playable blob URLs. Returns missing clip ids.
 export async function rehydrateProject(project: Project): Promise<{ project: Project; missing: string[] }> {
   const missing: string[] = [];

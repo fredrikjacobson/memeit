@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
 import { fetchVoices, generateTtsAudio, type TtsVoice } from '../lib/tts';
+import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import { Slider } from './ui/slider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 const FALLBACK: TtsVoice[] = [
   { name: 'en-US-Standard-A', languageCode: 'en-US', label: 'Standard A (cheap)' },
@@ -56,54 +62,56 @@ export default function TtsPanel() {
 
   if (!open) {
     return (
-      <button className="btn btn-block" onClick={() => setOpen(true)} title="Generate voiceover with Google TTS">
+      <Button variant="outline" className="w-full" onClick={() => setOpen(true)} title="Generate voiceover with Google TTS">
         🔊 Generate voiceover
-      </button>
+      </Button>
     );
   }
 
   return (
-    <div className="kf-box">
-      <div className="kf-head">
-        <b>🔊 Text to speech</b>
-        <button className="icon-btn" onClick={() => setOpen(false)} title="Close">✕</button>
+    <Card className="bg-muted/30 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <b className="text-xs">🔊 Text to speech</b>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen(false)} title="Close">✕</Button>
       </div>
       {unconfigured && (
-        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 6 }}>
+        <div className="mb-1.5 text-[11px] text-muted-foreground">
           Server may lack Google credentials — generation will report setup steps if so.
         </div>
       )}
-      <div className="field">
-        <span>Text (max 5000 chars)</span>
-        <textarea
-          className="text-input"
+      <div className="mb-2.5 flex flex-col gap-1">
+        <Label>Text (max 5000 chars)</Label>
+        <Textarea
           rows={3}
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 5000))}
           placeholder="This is a meme test…"
-          style={{ resize: 'vertical', lineHeight: 1.4 }}
+          className="resize-y leading-relaxed"
         />
       </div>
-      <div className="field">
-        <span>Voice</span>
-        <select className="text-input" value={voiceName} onChange={(e) => setVoiceName(e.target.value)}>
-          {voices.map((v) => (
-            <option key={v.name} value={v.name}>{v.label}</option>
-          ))}
-        </select>
+      <div className="mb-2.5 flex flex-col gap-1">
+        <Label>Voice</Label>
+        <Select value={voiceName} onValueChange={setVoiceName}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {voices.map((v) => (
+              <SelectItem key={v.name} value={v.name}>{v.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       {!isChirp && (
-        <div className="field">
-          <span>Speed ({rate.toFixed(2)}x)</span>
-          <input type="range" min={0.5} max={2} step={0.05} value={rate} onChange={(e) => setRate(Number(e.target.value))} />
+        <div className="mb-2.5 flex flex-col gap-1.5">
+          <Label>Speed ({rate.toFixed(2)}x)</Label>
+          <Slider min={0.5} max={2} step={0.05} value={[rate]} onValueChange={([v]) => setRate(v ?? 1)} />
         </div>
       )}
-      <button className="btn btn-primary btn-block btn-sm" onClick={generate} disabled={!text.trim() || !!status}>
+      <Button size="sm" className="w-full" onClick={generate} disabled={!text.trim() || !!status}>
         {status ? `⏳ ${status}` : 'Generate → add as audio clip'}
-      </button>
-      <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4 }}>
+      </Button>
+      <div className="mt-1 text-[11px] text-muted-foreground">
         {text.trim().length} chars · cached server-side in data/tts
       </div>
-    </div>
+    </Card>
   );
 }

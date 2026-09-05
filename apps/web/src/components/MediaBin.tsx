@@ -1,15 +1,18 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { ProjectSchema, formatSrt, parseSrt } from '@memeit/timeline';
 import { useEditor, uid } from '../store';
 import { addMediaFiles } from '../lib/media';
 import TtsPanel from './TtsPanel';
 import { addCaptionPersist, addSubtitleAfterLast, baseTextStyle } from '../lib/captions';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 
 const DOT: Record<string, string> = {
-  video: '#5b8cff',
-  image: '#9b7ff7',
-  text: '#f7b84f',
-  audio: '#4fd78a',
+  video: 'var(--chart-2)',
+  image: 'var(--chart-4)',
+  text: 'var(--chart-1)',
+  audio: 'var(--chart-3)',
 };
 
 function IconButton({
@@ -28,9 +31,9 @@ function IconButton({
   const ref = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button className="icon-tool" onClick={() => ref.current?.click()} title={kbd ? `${title} (${kbd})` : title}>
+      <Button variant="outline" size="icon" className="h-[34px] w-[38px] text-base" onClick={() => ref.current?.click()} title={kbd ? `${title} (${kbd})` : title}>
         {icon}
-      </button>
+      </Button>
       <input
         ref={ref}
         type="file"
@@ -54,7 +57,6 @@ export default function MediaBin() {
   const unsupportedIds = useEditor((s) => s.unsupportedIds);
   const srtRef = useRef<HTMLInputElement>(null);
   const jsonRef = useRef<HTMLInputElement>(null);
-  const [menu, setMenu] = useState(false);
 
   // (moved to lib/captions.ts so keybindings share the same behavior)
   const addText = addCaptionPersist;
@@ -111,10 +113,10 @@ export default function MediaBin() {
         alert('Invalid project JSON.');
         return;
       }
-      const { rehydrateProject } = await import('../lib/persist');
+      const { rehydrateProject, fitProjectToClips } = await import('../lib/persist');
       const { project: hydrated, missing } = await rehydrateProject(parsed.data);
       const st = useEditor.getState();
-      st.updateProject(() => hydrated);
+      st.updateProject(() => fitProjectToClips(hydrated));
       st.select(null);
       st.setTime(0);
       if (missing.length > 0) {
@@ -129,32 +131,29 @@ export default function MediaBin() {
   return (
     <div>
       {/* tight icon toolbar — window itself is the dropzone */}
-      <div className="tool-row">
+      <div className="flex items-center gap-1.5">
         <IconButton icon="🎬" title="Add video" accept="video/*" />
         <IconButton icon="🖼" title="Add image" accept="image/*" />
         <IconButton icon="🎵" title="Add audio" accept="audio/*" multiple />
-        <button className="icon-tool" onClick={addText} title="New caption at playhead (t)">
-          <b>T+</b>
-        </button>
-        <button className="icon-tool" onClick={addSubtitleAfterLast} title="Next subtitle line (s)">
-          <b>S+</b>
-        </button>
-        <div style={{ position: 'relative', marginLeft: 'auto' }}>
-          <button className="icon-tool" onClick={() => setMenu((v) => !v)} title="Subtitles / project files">
-            ⋯
-          </button>
-          {menu && (
-            <>
-              <div className="menu-scrim" onClick={() => setMenu(false)} />
-              <div className="menu">
-                <button onClick={() => { setMenu(false); srtRef.current?.click(); }}>⬆ Import SRT</button>
-                <button onClick={() => { setMenu(false); exportSrt(); }}>⬇ Export SRT</button>
-                <div className="menu-sep" />
-                <button onClick={() => { setMenu(false); jsonRef.current?.click(); }}>⬆ Import JSON</button>
-                <button onClick={() => { setMenu(false); exportJson(); }}>⬇ Export JSON</button>
-              </div>
-            </>
-          )}
+        <Button variant="outline" size="icon" className="h-[34px] w-[38px] text-xs font-bold" onClick={addText} title="New caption at playhead (t)">
+          T+
+        </Button>
+        <Button variant="outline" size="icon" className="h-[34px] w-[38px] text-xs font-bold" onClick={addSubtitleAfterLast} title="Next subtitle line (s)">
+          S+
+        </Button>
+        <div className="ml-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-[34px] w-[38px]" title="Subtitles / project files">⋯</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => srtRef.current?.click()}>⬆ Import SRT</DropdownMenuItem>
+              <DropdownMenuItem onClick={exportSrt}>⬇ Export SRT</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => jsonRef.current?.click()}>⬆ Import JSON</DropdownMenuItem>
+              <DropdownMenuItem onClick={exportJson}>⬇ Export JSON</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <input
@@ -180,11 +179,13 @@ export default function MediaBin() {
         }}
       />
 
-      <TtsPanel />
+      <div className="mt-3">
+        <TtsPanel />
+      </div>
 
-      <div className="clip-list">
+      <div className="mt-3 flex flex-col gap-1.5">
         {project.clips.length === 0 && (
-          <div style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>No clips yet — drop a file anywhere to start.</div>
+          <div className="text-xs text-muted-foreground">No clips yet — drop a file anywhere to start.</div>
         )}
         {project.clips
           .slice()
@@ -192,26 +193,28 @@ export default function MediaBin() {
           .map((c) => {
             const missing = (c.kind === 'video' || c.kind === 'image' || c.kind === 'audio') && c.src.startsWith('missing:');
             const unsupported = !!unsupportedIds[c.id];
+            const selected = selectedId === c.id;
             return (
               <div
                 key={c.id}
-                className={`clip-row${selectedId === c.id ? ' selected' : ''}${missing ? ' missing' : ''}`}
                 onClick={() => select(c.id)}
-                style={{ cursor: 'pointer' }}
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border bg-muted/30 px-2 py-1.5 text-xs transition-colors hover:border-ring/60 ${selected ? 'border-ring' : 'border-border'} ${missing ? 'border-destructive' : ''}`}
               >
-              <span className="dot" style={{ background: missing || unsupported ? 'var(--danger)' : DOT[c.kind] }} />
-              <span className="nm" title={unsupported ? 'This browser cannot decode this file — Render MP4 still includes it' : c.kind === 'text' ? c.text : c.name ?? c.id}>
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: missing || unsupported ? 'var(--destructive)' : DOT[c.kind] }} />
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-foreground" title={unsupported ? 'This browser cannot decode this file — Render MP4 still includes it' : c.kind === 'text' ? c.text : c.name ?? c.id}>
                 {missing ? '⚠️ ' : ''}
                 {unsupported && !missing ? '🔇 ' : ''}
                   {c.kind}: {(c.kind === 'text' ? c.text : c.name ?? c.id).slice(0, 28).replace(/\n/g, ' ')}
                   {c.kind === 'text' && (c.keyframes?.length ?? 0) > 0 && (
-                    <span className="kf-badge">◆{c.keyframes!.length}</span>
+                    <Badge variant="outline" className="ml-1.5 px-1 py-0 text-[10px] text-ring">◆{c.keyframes!.length}</Badge>
                   )}
                 </span>
-                <span className="tm">{(c.durationMs / 1000).toFixed(1)}s</span>
+                <span className="tabular-nums text-muted-foreground">{(c.durationMs / 1000).toFixed(1)}s</span>
                 {missing && <RelinkButton clipId={c.id} kind={c.kind} />}
-                <button
-                  className="icon-btn"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:bg-white/10 hover:text-destructive"
                   onClick={(e) => {
                     e.stopPropagation();
                     removeClip(c.id);
@@ -219,7 +222,7 @@ export default function MediaBin() {
                   title="Delete"
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             );
           })}
@@ -233,8 +236,9 @@ function RelinkButton({ clipId, kind }: { clipId: string; kind: string }) {
   const accept = kind === 'video' ? 'video/*' : kind === 'image' ? 'image/*' : 'audio/*';
   return (
     <>
-      <button
-        className="btn btn-sm"
+      <Button
+        size="sm"
+        variant="outline"
         title="Pick the file again to re-link this clip"
         onClick={(e) => {
           e.stopPropagation();
@@ -242,7 +246,7 @@ function RelinkButton({ clipId, kind }: { clipId: string; kind: string }) {
         }}
       >
         Relink
-      </button>
+      </Button>
       <input
         ref={ref}
         type="file"

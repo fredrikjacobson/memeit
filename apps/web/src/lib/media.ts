@@ -166,6 +166,13 @@ export async function addMediaFiles(files: FileList | File[]) {
       const probed = await probeAudioDuration(url);
       const durationMs = probed ? Math.max(500, Math.min(300_000, probed)) : 10_000;
       state.addClip({ ...base, kind: 'audio', durationMs, volume: 1, srcOffsetMs: 0 });
+      // Grow the timeline to fit the audio (startMs is 0). Otherwise a clip
+      // longer than the project overflows it and the timeline move clamp
+      // (projDur - duration <= 0) pins it at 0 — it can't be dragged at all.
+      const cur = useEditor.getState().project.durationMs;
+      if (durationMs > cur) {
+        useEditor.getState().updateProject((p) => ({ ...p, durationMs: Math.min(300_000, Math.max(p.durationMs, durationMs)) }));
+      }
     }
   }
 }
