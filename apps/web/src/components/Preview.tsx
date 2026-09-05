@@ -1,6 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { evalTextAt, isClipActiveAt, nearestKeyframe, uid, type TextClip } from '@memeit/timeline';
 import { useEditor } from '../store';
+import { aiDisplaySrc, useBgAi } from '../lib/bgai';
 import { Button } from './ui/button';
 import { Slider } from './ui/slider';
 
@@ -23,10 +24,18 @@ export default function Preview() {
   // (export consumes it as [bg]) — don't also draw it as a foreground overlay
   const activeBgImageId =
     activeVideo && activeVideo.kind === 'video' &&
-    (activeVideo.bgRemove ?? 'off') === 'chroma' &&
+    (activeVideo.bgRemove ?? 'off') !== 'off' &&
     (activeVideo.bgReplace ?? 'black') === 'image'
       ? (activeVideo.bgImageClipId ?? null)
       : null;
+  // AI cutout ready? swap the video src for the processed transparent WebM
+  const activeVideoSrc =
+    activeVideo && activeVideo.kind === 'video'
+      ? (aiDisplaySrc(activeVideo) ?? activeVideo.src)
+      : null;
+  const activeAiJob = useBgAi((s) => (activeVideo ? s.jobs[activeVideo.id] : undefined));
+  const activeAiRunning =
+    !!activeAiJob && (activeAiJob.phase === 'loading' || activeAiJob.phase === 'processing' || activeAiJob.phase === 'encoding');
   const activeImages = project.clips.filter(
     (c) => c.kind === 'image' && isClipActiveAt(c, currentTimeMs) && c.id !== activeBgImageId
   );
@@ -38,7 +47,7 @@ export default function Preview() {
     project.clips.some(
       (c) =>
         c.kind === 'video' &&
-        (c.bgRemove ?? 'off') === 'chroma' &&
+        (c.bgRemove ?? 'off') !== 'off' &&
         (c.bgReplace ?? 'black') === 'image' &&
         c.bgImageClipId === selectedClip.id
     )
@@ -187,7 +196,8 @@ export default function Preview() {
             <PreviewBackdrop videoId={activeVideo.id} />
             <video
               ref={videoRef}
-              src={activeVideo.src}
+              key={activeVideoSrc}
+              src={activeVideoSrc ?? activeVideo.src}
               style={{
                 position: 'absolute',
                 left: `${50 + (activeVideo.x ?? 0) * 100}%`,
@@ -202,20 +212,30 @@ export default function Preview() {
               playsInline
               onError={() => useEditor.getState().markUnsupported(activeVideo.id)}
             />
-            {(activeVideo.bgRemove ?? 'off') === 'chroma' && (
+            {(activeVideo.bgRemove ?? 'off') !== 'off' && (
               <div
                 style={{
                   position: 'absolute', top: 8, left: 8, fontSize: 11,
                   background: 'var(--accent)', color: 'var(--accent-foreground)',
                   padding: '2px 8px', borderRadius: 999,
                 }}
-                title="Chroma-key applies on export — preview shows the original"
+                title={
+                  (activeVideo.bgRemove ?? 'off') === 'ai'
+                    ? 'On-device AI cutout'
+                    : 'Chroma-key applies on export — preview shows the original'
+                }
               >
-                {activeVideo.bgReplace === 'image'
-                  ? `🔑 key → image on export`
-                  : activeVideo.bgReplace === 'color'
-                    ? `🔑 key → ${activeVideo.bgColor ?? '#000000'} on export`
-                    : `🔑 chroma-key on export`}
+                {(activeVideo.bgRemove ?? 'off') === 'ai'
+                  ? (aiDisplaySrc(activeVideo)
+                    ? `✨ AI cutout${activeVideo.bgReplace === 'image' ? ' → image' : activeVideo.bgReplace === 'color' ? ` → ${activeVideo.bgColor ?? '#000000'}` : ''}`
+                    : activeAiRunning
+                      ? `✨ ${activeAiJob!.label} · ${Math.round(activeAiJob!.progress * 100)}%`
+                      : `✨ AI cutout pending…`)
+                  : (activeVideo.bgReplace === 'image'
+                    ? `🔑 key → image on export`
+                    : activeVideo.bgReplace === 'color'
+                      ? `🔑 key → ${activeVideo.bgColor ?? '#000000'} on export`
+                      : `🔑 chroma-key on export`)}
               </div>
             )}
           </>
@@ -257,8 +277,8 @@ export default function Preview() {
         {!sizingBg && activeImages.map((c) =>
           c.kind === 'image' && !c.src.startsWith('missing:') ? (
             <img
-              key={c.id}
-              src={c.src}
+              key={`${c.id}:${aiDisplaySrc(c) ?? c.src}`}
+              src={aiDisplaySrc(c) ?? c.src}
               onError={() => useEditor.getState().markUnsupported(c.id)}
               style={{
                 position: 'absolute',
@@ -324,11 +344,15 @@ function PreviewBackdrop({ videoId }: { videoId: string }) {
   const clip = useEditor((s) => s.project.clips.find((c) => c.id === videoId));
   const bgImage = useEditor((s) => {
     if (!clip || clip.kind !== 'video') return null;
-    if ((clip.bgRemove ?? 'off') !== 'chroma' || (clip.bgReplace ?? 'black') !== 'image') return null;
+    if ((clip.bgRemove ?? 'off') === 'off' || (clip.bgReplace ?? 'black') !== 'image') return null;
     const img = s.project.clips.find((c) => c.id === (clip.bgImageClipId ?? ''));
     return img && img.kind === 'image' && !img.src.startsWith('missing:') ? img : null;
   });
-  if (!clip || clip.kind !== 'video' || (clip.bgRemove ?? 'off') !== 'chroma') {
+  if (!clip || clip.kind !== 'video' || (clip.bgRemove ?? 'off') === 'off') {
+    return null;
+  }
+  // AI cutout not ready yet — nothing transparent to composite over, skip
+  if ((clip.bgRemove ?? 'off') === 'ai' && !aiDisplaySrc(clip)) {
     return null;
   }
   if ((clip.bgReplace ?? 'black') === 'color') {

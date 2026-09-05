@@ -2,7 +2,9 @@ import { useRef } from 'react';
 import { ProjectSchema, formatSrt, parseSrt } from '@memeit/timeline';
 import { useEditor, uid } from '../store';
 import { addMediaFiles } from '../lib/media';
+import { cancelAiJob, startAiBackgroundRemoval, useBgAi } from '../lib/bgai';
 import TtsPanel from './TtsPanel';
+import YoutubePanel from './YoutubePanel';
 import { addCaptionPersist, addSubtitleAfterLast, baseTextStyle } from '../lib/captions';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -179,7 +181,8 @@ export default function MediaBin() {
         }}
       />
 
-      <div className="mt-3">
+      <div className="mt-3 flex flex-col gap-1.5">
+        <YoutubePanel />
         <TtsPanel />
       </div>
 
@@ -210,6 +213,7 @@ export default function MediaBin() {
                   )}
                 </span>
                 <span className="tabular-nums text-muted-foreground">{(c.durationMs / 1000).toFixed(1)}s</span>
+                {(c.kind === 'video' || c.kind === 'image') && !missing && <AiBgQuickButton clipId={c.id} />}
                 {missing && <RelinkButton clipId={c.id} kind={c.kind} />}
                 <Button
                   variant="ghost"
@@ -228,6 +232,50 @@ export default function MediaBin() {
           })}
       </div>
     </div>
+  );
+}
+
+function AiBgQuickButton({ clipId }: { clipId: string }) {
+  const clip = useEditor((s) => s.project.clips.find((c) => c.id === clipId));
+  const job = useBgAi((s) => s.jobs[clipId]);
+  if (!clip || (clip.kind !== 'video' && clip.kind !== 'image')) return null;
+  const running = !!job && (job.phase === 'loading' || job.phase === 'processing' || job.phase === 'encoding');
+  const done = (clip.bgRemove ?? 'off') === 'ai' && (clip.bgAiStatus ?? 'idle') === 'done' && !!clip.bgAiSrc;
+  if (running) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 shrink-0 px-1.5 text-[10px] tabular-nums text-muted-foreground"
+        title={`${job.label} — click to cancel`}
+        onClick={(e) => {
+          e.stopPropagation();
+          cancelAiJob(clipId);
+        }}
+      >
+        ✨ {Math.round((job.progress ?? 0) * 100)}%
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={`h-6 w-6 shrink-0 ${done ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+      title={done ? 'AI cutout ready — see Inspector to re-run or revert' : 'Remove background with on-device AI (see Inspector)'}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (done) {
+          useEditor.getState().select(clipId);
+          return;
+        }
+        useEditor.getState().updateClip(clipId, { bgRemove: 'ai' } as never);
+        useEditor.getState().select(clipId);
+        void startAiBackgroundRemoval(clipId).catch((err) => alert(err instanceof Error ? err.message : String(err)));
+      }}
+    >
+      ✨
+    </Button>
   );
 }
 
@@ -259,6 +307,9 @@ function RelinkButton({ clipId, kind }: { clipId: string; kind: string }) {
           const { relinkClipFile } = await import('../lib/media');
           const url = await relinkClipFile(clipId, f);
           const st = useEditor.getState();
+          // new bytes invalidate any AI cutout of the old file
+          const { clearAiBackground } = await import('../lib/bgai');
+          await clearAiBackground(clipId);
           st.updateClip(clipId, { src: url, name: f.name } as never);
         }}
       />

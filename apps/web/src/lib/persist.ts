@@ -4,15 +4,23 @@ import { registerFile } from './media';
 
 const LS_KEY = 'memeit.project.v1';
 
-// Serialize: blob:/missing: URLs -> asset: refs so JSON survives refresh + export
+// Serialize: blob:/missing: URLs -> asset: refs so JSON survives refresh + export.
+// AI cutouts (bgAiSrc) are persisted under `<clipId>__bgai` the same way.
 export function serializeProject(project: Project): Project {
   return {
     ...project,
     clips: project.clips.map((c) => {
       if (c.kind === 'video' || c.kind === 'image' || c.kind === 'audio') {
+        let next: AnyClip = { ...c };
         const id = clipIdFromRef(c.src) ?? (c.src.startsWith('blob:') ? c.id : null);
-        if (id) return { ...c, src: toAssetRef(id) };
-        if (isMissingRef(c.src)) return { ...c, src: toAssetRef(c.id) };
+        if (id) next = { ...next, src: toAssetRef(id) };
+        else if (isMissingRef(c.src)) next = { ...next, src: toAssetRef(c.id) };
+        if ((c.kind === 'video' || c.kind === 'image') && c.bgAiSrc) {
+          const bgId = clipIdFromRef(c.bgAiSrc) ?? (c.bgAiSrc.startsWith('blob:') ? `${c.id}__bgai` : null);
+          if (bgId) next = { ...next, bgAiSrc: toAssetRef(bgId) } as AnyClip;
+          else if (isMissingRef(c.bgAiSrc)) next = { ...next, bgAiSrc: toAssetRef(`${c.id}__bgai`) } as AnyClip;
+        }
+        return next;
       }
       return c;
     }) as Project['clips'],
@@ -72,7 +80,25 @@ export async function rehydrateProject(project: Project): Promise<{ project: Pro
       const file = blob instanceof File ? blob : new File([blob], c.name ?? refId, { type: blob.type });
       const url = URL.createObjectURL(file);
       registerFile(url, file, refId);
-      return { ...c, src: url } as AnyClip;
+      let next = { ...c, src: url } as AnyClip;
+      // restore the AI cutout alongside the original (stored under <id>__bgai)
+      if ((next.kind === 'video' || next.kind === 'image') && next.bgAiSrc) {
+        const bgRefId = clipIdFromRef(next.bgAiSrc);
+        if (bgRefId) {
+          const bgBlob = await loadAsset(bgRefId).catch(() => undefined);
+          if (bgBlob) {
+            const bgFile = bgBlob instanceof File ? bgBlob : new File([bgBlob], `${c.name ?? c.id}.bgai`, { type: bgBlob.type });
+            const bgUrl = URL.createObjectURL(bgFile);
+            registerFile(bgUrl, bgFile, bgRefId);
+            next = { ...next, bgAiSrc: bgUrl } as AnyClip;
+          } else {
+            next = { ...next, bgAiSrc: `missing:${bgRefId}` } as AnyClip;
+          }
+        } else if (next.bgAiSrc.startsWith('blob:')) {
+          next = { ...next, bgAiSrc: `missing:${c.id}__bgai` } as AnyClip;
+        }
+      }
+      return next;
     })
   );
   return { project: { ...project, clips }, missing };

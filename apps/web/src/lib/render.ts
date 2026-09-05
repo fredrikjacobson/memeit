@@ -1,5 +1,5 @@
 import { useEditor } from '../store';
-import { getFileForUrl } from './media';
+import { fileForUpload } from './bgai';
 
 export type RenderState = { status: string; warnings?: string[]; log?: string };
 
@@ -11,7 +11,11 @@ export async function renderProject(onProgress: (s: string) => void): Promise<vo
   let attached = 0;
   for (const c of project.clips) {
     if (c.kind === 'video' || c.kind === 'image' || c.kind === 'audio') {
-      const f = getFileForUrl(c.src);
+      // AI cutout ready? upload the processed transparent file instead of the
+      // original — the server composites it the same way, no API change needed
+      const bgAiSrc = c.kind === 'video' || c.kind === 'image' ? (c.bgAiSrc ?? undefined) : undefined;
+      const aiOn = (c.kind === 'video' || c.kind === 'image') && ((c.bgRemove ?? 'off') === 'ai');
+      const f = aiOn ? fileForUpload(c.src, bgAiSrc) : fileForUpload(c.src);
       if (f) {
         // fieldname = clip id so server can map back (multer uses fieldname)
         fd.append(c.id, f, `${c.id}-${c.name ?? 'file'}`);

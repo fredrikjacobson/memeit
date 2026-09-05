@@ -14,8 +14,8 @@ export type RenderPlan = {
 
 // Full local render:
 // - base = earliest video fitted to WxH (cover/contain/stretch) or black color
-// - base video may have chroma-key background removal, composited over
-//   black / solid color / another image clip
+// - base video may have chroma-key ('chroma') or client-side AI cutout ('ai')
+//   background removal, composited over black / solid color / another image clip
 // - image overlays scaled by clip.scale, positioned from normalized x/y
 // - text overlays are pre-rendered full-frame PNGs (see text.ts), overlaid 0:0
 // - audio: base video audio (if probed present) + N tracks via adelay+amix
@@ -76,6 +76,13 @@ export function buildFfmpegArgs(
   const filters: string[] = [];
   const hasBase = baseClip && idxOf.has(`video:${baseClip.id}`);
   const chromaOn = hasBase && (baseClip as VideoClip).bgRemove === 'chroma';
+  // AI cutout: the uploaded file is already a transparent WebM (client-side
+  // segmentation) — no chromakey needed, just composite over the replacement bg
+  const aiOn = hasBase && (baseClip as VideoClip).bgRemove === 'ai';
+  const keyedOn = chromaOn || aiOn;
+  if (aiOn && opts.baseHasAudio === false && !audios.some((c) => byId.has(c.id))) {
+    warnings.push('AI cutout is silent and no separate audio track was found — original camera audio is dropped.');
+  }
   const fit = (hasBase ? (baseClip as VideoClip).fit : 'cover') ?? 'cover';
   // cover = fill + center-crop (current behavior, best for same-aspect sources)
   // contain = fit inside + black letterbox (best for 16:9 source on 9:16 canvas)
@@ -92,12 +99,17 @@ export function buildFfmpegArgs(
     // pan the fitted video on the canvas (x/y are -0.5..0.5 normalized; 0,0 = centered = legacy)
     const vxb = Math.round((vc.x ?? 0) * W);
     const vyb = Math.round((vc.y ?? 0) * H);
-    if (chromaOn) {
+    if (keyedOn) {
       const c = vc;
-      const hex = (c.chromaColor ?? '#00FF00').replace('#', '0x');
-      const sim = Math.max(0, Math.min(1, c.chromaSimilarity ?? 0.3)).toFixed(3);
-      const blend = Math.max(0, Math.min(1, c.chromaBlend ?? 0.1)).toFixed(3);
-      filters.push(`[0:v]${fitChain},chromakey=${hex}:${sim}:${blend},format=yuva420p[ck]`);
+      if (chromaOn) {
+        const hex = (c.chromaColor ?? '#00FF00').replace('#', '0x');
+        const sim = Math.max(0, Math.min(1, c.chromaSimilarity ?? 0.3)).toFixed(3);
+        const blend = Math.max(0, Math.min(1, c.chromaBlend ?? 0.1)).toFixed(3);
+        filters.push(`[0:v]${fitChain},chromakey=${hex}:${sim}:${blend},format=yuva420p[ck]`);
+      } else {
+        // AI file already carries alpha — keep it through the fit
+        filters.push(`[0:v]${fitChain},format=yuva420p[ck]`);
+      }
       // replacement background behind the keyed subject
       const replace = (c.bgReplace ?? 'black') as 'black' | 'color' | 'image';
       const bgImage =
@@ -147,9 +159,9 @@ export function buildFfmpegArgs(
 
   // background image doubles as the [bg] source — don't also draw it on top
   const bgImageId =
-    chromaOn ? ((baseClip as VideoClip).bgImageClipId ?? null) : null;
+    keyedOn ? ((baseClip as VideoClip).bgImageClipId ?? null) : null;
   const bgInUse =
-    chromaOn &&
+    keyedOn &&
     (baseClip as VideoClip).bgReplace === 'image' &&
     bgImageId != null &&
     idxOf.has(`image:${bgImageId}`)
@@ -220,7 +232,7 @@ export function buildFfmpegArgs(
 
   return {
     args,
-    description: `render ${W}x${H}@${fps} ${DUR}s — ${videos.length}v/${images.length}img/${texts.length}txt/${audios.length}aud, base audio ${opts.baseHasAudio ? 'yes' : 'no'}${hasBase ? `, fit ${fit}` : ''}${chromaOn ? `, chroma-key over ${(baseClip as VideoClip).bgReplace ?? 'black'}` : ''}`,
+    description: `render ${W}x${H}@${fps} ${DUR}s — ${videos.length}v/${images.length}img/${texts.length}txt/${audios.length}aud, base audio ${opts.baseHasAudio ? 'yes' : 'no'}${hasBase ? `, fit ${fit}` : ''}${chromaOn ? `, chroma-key over ${(baseClip as VideoClip).bgReplace ?? 'black'}` : ''}${aiOn ? `, AI cutout over ${(baseClip as VideoClip).bgReplace ?? 'black'}` : ''}`,
     warnings,
   };
 }

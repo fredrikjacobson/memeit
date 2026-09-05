@@ -156,6 +156,8 @@ export async function addMediaFiles(files: FileList | File[]) {
         srcOffsetMs: 0,
         fit: 'cover',
         bgRemove: 'off',
+        bgAiStatus: 'idle',
+        bgAiProgress: 0,
         chromaColor: '#00FF00',
         chromaSimilarity: 0.3,
         chromaBlend: 0.1,

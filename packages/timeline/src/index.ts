@@ -21,8 +21,15 @@ export const VideoClipSchema = ClipBase.extend({
   srcOffsetMs: z.number().min(0).max(5 * 60 * 1000).default(0),
   // how the source fills the canvas: cover = fill+crop, contain = fit+letterbox, stretch = exact (may distort)
   fit: z.enum(['cover', 'contain', 'stretch']).default('cover'),
-  // background removal (V1: chroma-key for solid green/blue screens)
-  bgRemove: z.enum(['off', 'chroma']).default('off'),
+  // background removal: chroma-key for solid green/blue screens,
+  // 'ai' for client-side ML segmentation (transparent WebM cached in bgAiSrc)
+  bgRemove: z.enum(['off', 'chroma', 'ai']).default('off'),
+  // client-side AI result (blob: URL in memory, asset: ref when serialized)
+  bgAiSrc: z.string().optional(),
+  bgAiStatus: z.enum(['idle', 'loading', 'processing', 'done', 'error']).default('idle').optional(),
+  bgAiProgress: z.number().min(0).max(1).default(0).optional(),
+  bgAiModel: z.string().optional(),
+  bgAiError: z.string().optional(),
   chromaColor: z.string().default('#00FF00'),
   chromaSimilarity: z.number().min(0).max(1).default(0.3),
   chromaBlend: z.number().min(0).max(1).default(0.1),
@@ -38,6 +45,13 @@ export const ImageClipSchema = ClipBase.extend({
   scale: z.number().min(0.1).max(4).default(1),
   x: z.number().default(0),
   y: z.number().default(0),
+  // client-side AI background removal (single-frame PNG cached in bgAiSrc)
+  bgRemove: z.enum(['off', 'ai']).default('off').optional(),
+  bgAiSrc: z.string().optional(),
+  bgAiStatus: z.enum(['idle', 'loading', 'processing', 'done', 'error']).default('idle').optional(),
+  bgAiProgress: z.number().min(0).max(1).default(0).optional(),
+  bgAiModel: z.string().optional(),
+  bgAiError: z.string().optional(),
 });
 
 export const KeyframeSchema = z.object({

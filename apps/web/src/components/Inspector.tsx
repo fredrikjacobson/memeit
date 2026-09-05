@@ -10,6 +10,7 @@ import { Card } from './ui/card';
 import { Slider } from './ui/slider';
 import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
+import AiBgPanel from './AiBgPanel';
 
 const PRESETS = [
   { label: '9:16', w: 1080, h: 1920 },
@@ -244,13 +245,27 @@ export default function Inspector() {
           )}
           {clip.kind === 'video' && (
             <Card className="mb-2.5 mt-3 bg-muted/30 p-3">
-              <label className="flex cursor-pointer items-center gap-2 text-xs font-bold">
-                <Checkbox
-                  checked={(clip.bgRemove ?? 'off') === 'chroma'}
-                  onCheckedChange={(v) => updateClip(clip.id, { bgRemove: v === true ? 'chroma' : 'off' } as never)}
-                />
-                Remove background (green-screen)
-              </label>
+              <Label>Background removal</Label>
+              <div className="mt-1.5 flex gap-1.5">
+                {(['off', 'chroma', 'ai'] as const).map((m) => (
+                  <Button
+                    key={m}
+                    size="sm"
+                    variant={(clip.bgRemove ?? 'off') === m ? 'default' : 'outline'}
+                    onClick={() => updateClip(clip.id, { bgRemove: m } as never)}
+                    title={
+                      m === 'off'
+                        ? 'No background removal'
+                        : m === 'chroma'
+                          ? 'Green/blue-screen keying via ffmpeg on export'
+                          : 'On-device AI cutout (transparent WebM, preview + export)'
+                    }
+                  >
+                    {m === 'off' ? 'Off' : m === 'chroma' ? 'Green-screen' : '✨ AI'}
+                  </Button>
+                ))}
+              </div>
+              {(clip.bgRemove ?? 'off') === 'ai' && <AiBgPanel key={clip.id} clipId={clip.id} />}
               {(clip.bgRemove ?? 'off') === 'chroma' && (
                 <div className="mt-2 flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-xs">
@@ -283,6 +298,10 @@ export default function Inspector() {
                       onValueChange={([v]) => updateClip(clip.id, { chromaBlend: v ?? 0.1 } as never)}
                     />
                   </div>
+                </div>
+              )}
+              {(clip.bgRemove ?? 'off') !== 'off' && (
+                <div className="mt-2 flex flex-col gap-2">
                   <Separator />
                   <div className="flex flex-col gap-1.5">
                     <Label>Replacement background</Label>
@@ -317,7 +336,9 @@ export default function Inspector() {
                     )}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
-                    Applies on export via ffmpeg chromakey. Preview shows the original — export to check the key.
+                    {(clip.bgRemove ?? 'off') === 'chroma'
+                      ? 'Applies on export via ffmpeg chromakey. Preview shows the original — export to check the key.'
+                      : 'Composited behind the AI cutout in preview + export.'}
                   </div>
                 </div>
               )}

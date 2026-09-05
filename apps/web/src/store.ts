@@ -56,8 +56,14 @@ export const useEditor = create<EditorState>((set) => ({
       },
     })),
   removeClip: (id) => {
-    // drop persisted bytes too (fire-and-forget)
+    // drop persisted bytes too (fire-and-forget) — including any AI cutout
+    const clip = useEditor.getState().project.clips.find((c) => c.id === id);
+    const bgAiSrc = clip && (clip.kind === 'video' || clip.kind === 'image') ? clip.bgAiSrc : undefined;
     void deleteAsset(id).catch(() => {});
+    void deleteAsset(`${id}__bgai`).catch(() => {});
+    if (bgAiSrc?.startsWith('blob:')) {
+      void import('./lib/media').then((m) => m.unregisterUrl(bgAiSrc)).catch(() => {});
+    }
     return set((s) => ({
       project: { ...s.project, clips: s.project.clips.filter((c) => c.id !== id) },
       selectedId: s.selectedId === id ? null : s.selectedId,
