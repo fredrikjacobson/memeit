@@ -179,6 +179,150 @@ export default function Inspector() {
               />
             </div>
           )}
+          {clip.kind === 'image' && (
+            <div className="mb-2.5 mt-3 flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
+                <Label>Size ({clip.scale.toFixed(2)}x)</Label>
+                <Slider
+                  min={0.1}
+                  max={4}
+                  step={0.05}
+                  value={[clip.scale]}
+                  onValueChange={([v]) => updateClip(clip.id, { scale: v ?? 1 } as never)}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Position</Label>
+                <label className="flex items-center gap-2 text-xs">X <Slider min={-0.5} max={0.5} step={0.01} value={[clip.x]} onValueChange={([v]) => updateClip(clip.id, { x: v ?? 0 } as never)} /></label>
+                <label className="flex items-center gap-2 text-xs">Y <Slider min={-0.5} max={0.5} step={0.01} value={[clip.y]} onValueChange={([v]) => updateClip(clip.id, { y: v ?? 0 } as never)} /></label>
+              </div>
+              {project.clips.some((c) => c.kind === 'video' && c.bgImageClipId === clip.id) && (
+                <div className="text-[11px] text-muted-foreground">
+                  Used as a replacement background — Size/Position above apply to the backdrop too. Select the image to size it fullscreen (video hidden).
+                </div>
+              )}
+            </div>
+          )}
+          {clip.kind === 'video' && (
+            <div className="mb-2.5 mt-3 flex flex-col gap-2">
+              <Label>Position</Label>
+              <label className="flex items-center gap-2 text-xs">X <Slider min={-0.5} max={0.5} step={0.01} value={[clip.x ?? 0]} onValueChange={([v]) => updateClip(clip.id, { x: v ?? 0 } as never)} /></label>
+              <label className="flex items-center gap-2 text-xs">Y <Slider min={-0.5} max={0.5} step={0.01} value={[clip.y ?? 0]} onValueChange={([v]) => updateClip(clip.id, { y: v ?? 0 } as never)} /></label>
+              <div className="text-[11px] text-muted-foreground">
+                Pans the video — with cover, this picks which part gets cropped.
+              </div>
+            </div>
+          )}
+          {clip.kind === 'video' && (
+            <div className="mb-2.5 mt-3 flex flex-col gap-1">
+              <Label>Fit</Label>
+              <div className="flex gap-1.5">
+                {(['cover', 'contain', 'stretch'] as const).map((f) => (
+                  <Button
+                    key={f}
+                    size="sm"
+                    variant={(clip.fit ?? 'cover') === f ? 'default' : 'outline'}
+                    onClick={() => updateClip(clip.id, { fit: f } as never)}
+                    title={
+                      f === 'cover'
+                        ? 'Fill canvas, crop sides (current)'
+                        : f === 'contain'
+                          ? 'Fit whole video, black bars'
+                          : 'Stretch to exact size (may distort)'
+                    }
+                  >
+                    {f}
+                  </Button>
+                ))}
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {(clip.fit ?? 'cover') === 'cover' && 'Fills canvas — sides get cropped on aspect mismatch.'}
+                {(clip.fit ?? 'cover') === 'contain' && 'Shows the whole frame — black bars fill the rest.'}
+                {(clip.fit ?? 'cover') === 'stretch' && 'Stretches to exact size — may look squished.'}
+              </div>
+            </div>
+          )}
+          {clip.kind === 'video' && (
+            <Card className="mb-2.5 mt-3 bg-muted/30 p-3">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-bold">
+                <Checkbox
+                  checked={(clip.bgRemove ?? 'off') === 'chroma'}
+                  onCheckedChange={(v) => updateClip(clip.id, { bgRemove: v === true ? 'chroma' : 'off' } as never)}
+                />
+                Remove background (green-screen)
+              </label>
+              {(clip.bgRemove ?? 'off') === 'chroma' && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Label>Key color</Label>
+                    <Input
+                      type="color"
+                      className="h-7 w-12 p-1"
+                      value={clip.chromaColor ?? '#00FF00'}
+                      onChange={(e) => updateClip(clip.id, { chromaColor: e.target.value } as never)}
+                    />
+                    <span className="text-muted-foreground">{clip.chromaColor ?? '#00FF00'}</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Similarity ({(clip.chromaSimilarity ?? 0.3).toFixed(2)})</Label>
+                    <Slider
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={[clip.chromaSimilarity ?? 0.3]}
+                      onValueChange={([v]) => updateClip(clip.id, { chromaSimilarity: v ?? 0.3 } as never)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Blend ({(clip.chromaBlend ?? 0.1).toFixed(2)})</Label>
+                    <Slider
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={[clip.chromaBlend ?? 0.1]}
+                      onValueChange={([v]) => updateClip(clip.id, { chromaBlend: v ?? 0.1 } as never)}
+                    />
+                  </div>
+                  <Separator />
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Replacement background</Label>
+                    <div className="flex gap-1.5">
+                      {(['black', 'color', 'image'] as const).map((b) => (
+                        <Button
+                          key={b}
+                          size="sm"
+                          variant={(clip.bgReplace ?? 'black') === b ? 'default' : 'outline'}
+                          onClick={() => updateClip(clip.id, { bgReplace: b } as never)}
+                        >
+                          {b}
+                        </Button>
+                      ))}
+                    </div>
+                    {(clip.bgReplace ?? 'black') === 'color' && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <Input
+                          type="color"
+                          className="h-7 w-12 p-1"
+                          value={clip.bgColor ?? '#000000'}
+                          onChange={(e) => updateClip(clip.id, { bgColor: e.target.value } as never)}
+                        />
+                        <span className="text-muted-foreground">{clip.bgColor ?? '#000000'}</span>
+                      </div>
+                    )}
+                    {(clip.bgReplace ?? 'black') === 'image' && (
+                      <BackgroundImagePicker
+                        videoId={clip.id}
+                        selectedId={clip.bgImageClipId}
+                      />
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Applies on export via ffmpeg chromakey. Preview shows the original — export to check the key.
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
         </div>
       )}
 
@@ -188,6 +332,32 @@ export default function Inspector() {
       </details>
     </div>
   );
+
+  function BackgroundImagePicker({ videoId, selectedId }: { videoId: string; selectedId?: string }) {
+    const images = useEditor((s) => s.project.clips.filter((c) => c.kind === 'image'));
+    const updateClipInner = useEditor((s) => s.updateClip);
+    if (images.length === 0) {
+      return (
+        <div className="text-[11px] text-muted-foreground">
+          No images in timeline — add one via Media (🖼) first.
+        </div>
+      );
+    }
+    return (
+      <select
+        className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-xs"
+        value={selectedId ?? ''}
+        onChange={(e) => updateClipInner(videoId, { bgImageClipId: e.target.value || undefined } as never)}
+      >
+        <option value="">— pick background image —</option>
+        {images.map((c) => (
+          <option key={c.id} value={c.id}>
+            {(c.kind === 'image' ? (c.name ?? c.id) : c.id).slice(0, 40)}
+          </option>
+        ))}
+      </select>
+    );
+  }
 
   function TextTimingTools({ clipId }: { clipId: string }) {
     const c = useEditor.getState().project.clips.find((x) => x.id === clipId);

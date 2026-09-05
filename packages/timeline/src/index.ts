@@ -19,6 +19,17 @@ export const VideoClipSchema = ClipBase.extend({
   y: z.number().default(0),
   // offset into the source file where this clip starts (set by split)
   srcOffsetMs: z.number().min(0).max(5 * 60 * 1000).default(0),
+  // how the source fills the canvas: cover = fill+crop, contain = fit+letterbox, stretch = exact (may distort)
+  fit: z.enum(['cover', 'contain', 'stretch']).default('cover'),
+  // background removal (V1: chroma-key for solid green/blue screens)
+  bgRemove: z.enum(['off', 'chroma']).default('off'),
+  chromaColor: z.string().default('#00FF00'),
+  chromaSimilarity: z.number().min(0).max(1).default(0.3),
+  chromaBlend: z.number().min(0).max(1).default(0.1),
+  // what to composite behind the keyed subject (only used when bgRemove === 'chroma')
+  bgReplace: z.enum(['black', 'color', 'image']).default('black'),
+  bgColor: z.string().default('#000000'),
+  bgImageClipId: z.string().optional(),
 });
 
 export const ImageClipSchema = ClipBase.extend({

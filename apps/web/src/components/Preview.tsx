@@ -10,6 +10,7 @@ export default function Preview() {
   const playing = useEditor((s) => s.playing);
   const setTime = useEditor((s) => s.setTime);
   const setPlaying = useEditor((s) => s.setPlaying);
+  const selectedId = useEditor((s) => s.selectedId);
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
@@ -18,7 +19,31 @@ export default function Preview() {
   const videoClips = project.clips.filter((c) => c.kind === 'video');
   const activeVideo = videoClips.find((c) => isClipActiveAt(c, currentTimeMs)) ?? videoClips[0];
   const activeTexts = project.clips.filter((c) => c.kind === 'text' && isClipActiveAt(c, currentTimeMs));
-  const activeImages = project.clips.filter((c) => c.kind === 'image' && isClipActiveAt(c, currentTimeMs));
+  // image picked as this video's replacement background lives behind the video
+  // (export consumes it as [bg]) — don't also draw it as a foreground overlay
+  const activeBgImageId =
+    activeVideo && activeVideo.kind === 'video' &&
+    (activeVideo.bgRemove ?? 'off') === 'chroma' &&
+    (activeVideo.bgReplace ?? 'black') === 'image'
+      ? (activeVideo.bgImageClipId ?? null)
+      : null;
+  const activeImages = project.clips.filter(
+    (c) => c.kind === 'image' && isClipActiveAt(c, currentTimeMs) && c.id !== activeBgImageId
+  );
+  // sizing mode: selected image is some chroma video's replacement background —
+  // solo it fullscreen (video hidden) so Size/Position sliders visibly affect it
+  const selectedClip = project.clips.find((c) => c.id === selectedId);
+  const sizingBg =
+    selectedClip && selectedClip.kind === 'image' && !selectedClip.src.startsWith('missing:') &&
+    project.clips.some(
+      (c) =>
+        c.kind === 'video' &&
+        (c.bgRemove ?? 'off') === 'chroma' &&
+        (c.bgReplace ?? 'black') === 'image' &&
+        c.bgImageClipId === selectedClip.id
+    )
+      ? selectedClip
+      : null;
   const audioClips = project.clips.filter((c) => c.kind === 'audio');
   const audioRefs = useRef(new Map<string, HTMLAudioElement>());
 
@@ -132,14 +157,68 @@ export default function Preview() {
           margin: 'auto',
         }}
       >
-        {activeVideo && activeVideo.kind === 'video' && !videoMissing ? (
-          <video
-            ref={videoRef}
-            src={activeVideo.src}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-            playsInline
-            onError={() => useEditor.getState().markUnsupported(activeVideo.id)}
-          />
+        {sizingBg && sizingBg.kind === 'image' ? (
+          <>
+            <img
+              src={sizingBg.src}
+              style={{
+                position: 'absolute',
+                left: `${50 + (sizingBg.x ?? 0) * 100}%`,
+                top: `${50 + (sizingBg.y ?? 0) * 100}%`,
+                transform: 'translate(-50%,-50%)',
+                width: `${Math.max(0.1, Math.min(4, sizingBg.scale ?? 1)) * 100}%`,
+                height: `${Math.max(0.1, Math.min(4, sizingBg.scale ?? 1)) * 100}%`,
+                objectFit: 'cover',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute', top: 8, left: 8, fontSize: 11,
+                background: 'var(--accent)', color: 'var(--accent-foreground)',
+                padding: '2px 8px', borderRadius: 999,
+              }}
+              title="Video hidden while you size its replacement background"
+            >
+              🖼 sizing background — video hidden
+            </div>
+          </>
+        ) : activeVideo && activeVideo.kind === 'video' && !videoMissing ? (
+          <>
+            <PreviewBackdrop videoId={activeVideo.id} />
+            <video
+              ref={videoRef}
+              src={activeVideo.src}
+              style={{
+                position: 'absolute',
+                left: `${50 + (activeVideo.x ?? 0) * 100}%`,
+                top: `${50 + (activeVideo.y ?? 0) * 100}%`,
+                transform: 'translate(-50%,-50%)',
+                width: '100%',
+                height: '100%',
+                objectFit: (activeVideo.fit ?? 'cover') === 'contain' ? 'contain' : (activeVideo.fit ?? 'cover') === 'stretch' ? 'fill' : 'cover',
+                display: 'block',
+                background: 'transparent',
+              }}
+              playsInline
+              onError={() => useEditor.getState().markUnsupported(activeVideo.id)}
+            />
+            {(activeVideo.bgRemove ?? 'off') === 'chroma' && (
+              <div
+                style={{
+                  position: 'absolute', top: 8, left: 8, fontSize: 11,
+                  background: 'var(--accent)', color: 'var(--accent-foreground)',
+                  padding: '2px 8px', borderRadius: 999,
+                }}
+                title="Chroma-key applies on export — preview shows the original"
+              >
+                {activeVideo.bgReplace === 'image'
+                  ? `🔑 key → image on export`
+                  : activeVideo.bgReplace === 'color'
+                    ? `🔑 key → ${activeVideo.bgColor ?? '#000000'} on export`
+                    : `🔑 chroma-key on export`}
+              </div>
+            )}
+          </>
         ) : videoMissing ? (
           <div
             style={{
@@ -175,7 +254,7 @@ export default function Preview() {
             </div>
           </div>
         )}
-        {activeImages.map((c) =>
+        {!sizingBg && activeImages.map((c) =>
           c.kind === 'image' && !c.src.startsWith('missing:') ? (
             <img
               key={c.id}
@@ -239,6 +318,42 @@ export default function Preview() {
       </div>
     </div>
   );
+}
+
+function PreviewBackdrop({ videoId }: { videoId: string }) {
+  const clip = useEditor((s) => s.project.clips.find((c) => c.id === videoId));
+  const bgImage = useEditor((s) => {
+    if (!clip || clip.kind !== 'video') return null;
+    if ((clip.bgRemove ?? 'off') !== 'chroma' || (clip.bgReplace ?? 'black') !== 'image') return null;
+    const img = s.project.clips.find((c) => c.id === (clip.bgImageClipId ?? ''));
+    return img && img.kind === 'image' && !img.src.startsWith('missing:') ? img : null;
+  });
+  if (!clip || clip.kind !== 'video' || (clip.bgRemove ?? 'off') !== 'chroma') {
+    return null;
+  }
+  if ((clip.bgReplace ?? 'black') === 'color') {
+    return (
+      <div style={{ position: 'absolute', inset: 0, background: clip.bgColor ?? '#000000' }} />
+    );
+  }
+  if ((clip.bgReplace ?? 'black') === 'image' && bgImage && bgImage.kind === 'image') {
+    const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
+    return (
+      <img
+        src={bgImage.src}
+        style={{
+          position: 'absolute',
+          left: `${50 + (bgImage.x ?? 0) * 100}%`,
+          top: `${50 + (bgImage.y ?? 0) * 100}%`,
+          transform: 'translate(-50%,-50%)',
+          width: `${s * 100}%`,
+          height: `${s * 100}%`,
+          objectFit: 'cover',
+        }}
+      />
+    );
+  }
+  return null;
 }
 
 function DraggableText({ clip, frameRef }: { clip: TextClip; frameRef: React.RefObject<HTMLDivElement> }) {

@@ -154,6 +154,13 @@ export async function addMediaFiles(files: FileList | File[]) {
         x: 0,
         y: 0,
         srcOffsetMs: 0,
+        fit: 'cover',
+        bgRemove: 'off',
+        chromaColor: '#00FF00',
+        chromaSimilarity: 0.3,
+        chromaBlend: 0.1,
+        bgReplace: 'black',
+        bgColor: '#000000',
       });
       // if this is the first video, fit project duration to it (10s typical, up to 3min+)
       const vids = useEditor.getState().project.clips.filter((c) => c.kind === 'video');

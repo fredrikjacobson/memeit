@@ -13,7 +13,9 @@ export type RenderPlan = {
 };
 
 // Full local render:
-// - base = earliest video (scaled/cropped to WxH) or black color
+// - base = earliest video fitted to WxH (cover/contain/stretch) or black color
+// - base video may have chroma-key background removal, composited over
+//   black / solid color / another image clip
 // - image overlays scaled by clip.scale, positioned from normalized x/y
 // - text overlays are pre-rendered full-frame PNGs (see text.ts), overlaid 0:0
 // - audio: base video audio (if probed present) + N tracks via adelay+amix
@@ -73,11 +75,68 @@ export function buildFfmpegArgs(
 
   const filters: string[] = [];
   const hasBase = baseClip && idxOf.has(`video:${baseClip.id}`);
+  const chromaOn = hasBase && (baseClip as VideoClip).bgRemove === 'chroma';
+  const fit = (hasBase ? (baseClip as VideoClip).fit : 'cover') ?? 'cover';
+  // cover = fill + center-crop (current behavior, best for same-aspect sources)
+  // contain = fit inside + black letterbox (best for 16:9 source on 9:16 canvas)
+  // stretch = exact WxH (may distort, no cropping)
+  const fitChain =
+    fit === 'contain'
+      ? `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps}`
+      : fit === 'stretch'
+        ? `scale=${W}:${H},setsar=1,fps=${fps}`
+        : `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps}`;
 
   if (hasBase) {
-    filters.push(
-      `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps},format=yuv420p[base]`
-    );
+    const vc = baseClip as VideoClip;
+    // pan the fitted video on the canvas (x/y are -0.5..0.5 normalized; 0,0 = centered = legacy)
+    const vxb = Math.round((vc.x ?? 0) * W);
+    const vyb = Math.round((vc.y ?? 0) * H);
+    if (chromaOn) {
+      const c = vc;
+      const hex = (c.chromaColor ?? '#00FF00').replace('#', '0x');
+      const sim = Math.max(0, Math.min(1, c.chromaSimilarity ?? 0.3)).toFixed(3);
+      const blend = Math.max(0, Math.min(1, c.chromaBlend ?? 0.1)).toFixed(3);
+      filters.push(`[0:v]${fitChain},chromakey=${hex}:${sim}:${blend},format=yuva420p[ck]`);
+      // replacement background behind the keyed subject
+      const replace = (c.bgReplace ?? 'black') as 'black' | 'color' | 'image';
+      const bgImage =
+        replace === 'image'
+          ? images.find((im) => im.id === (c.bgImageClipId ?? ''))
+          : undefined;
+      const bgIdx = bgImage ? idxOf.get(`image:${bgImage.id}`) : undefined;
+      if (replace === 'image' && bgImage && bgIdx != null) {
+        // honor the linked image clip's own size/position: cover-fill, zoom by
+        // scale, then center with x/y offset on a black canvas (s=1,x=0,y=0 = exact fill)
+        const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
+        const xb = Math.round((bgImage.x ?? 0) * W);
+        const yb = Math.round((bgImage.y ?? 0) * H);
+        filters.push(
+          `[${bgIdx}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps},scale=iw*${s}:ih*${s},format=yuva420p[bgs]`
+        );
+        filters.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${DUR},format=yuv420p[bgc]`);
+        filters.push(`[bgc][bgs]overlay=x='(W-w)/2+${xb}':y='(H-h)/2+${yb}':shortest=1,format=yuv420p[bg]`);
+      } else {
+        if (replace === 'image') {
+          warnings.push(
+            `Background image "${c.bgImageClipId ?? '(none)'}" missing — fell back to black.`
+          );
+        }
+        const raw = (c.bgColor ?? '#000000').trim();
+        const solid =
+          replace === 'color' && /^#?[0-9a-fA-F]{6}$/.test(raw)
+            ? raw.replace('#', '0x')
+            : 'black';
+        filters.push(`color=c=${solid}:s=${W}x${H}:r=${fps}:d=${DUR},format=yuv420p[bg]`);
+      }
+      filters.push(`[bg][ck]overlay=x='(W-w)/2+${vxb}':y='(H-h)/2+${vyb}':shortest=1,format=yuv420p[base]`);
+    } else if (vxb !== 0 || vyb !== 0) {
+      filters.push(`[0:v]${fitChain},format=yuva420p[fg]`);
+      filters.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${DUR},format=yuv420p[bgc]`);
+      filters.push(`[bgc][fg]overlay=x='(W-w)/2+${vxb}':y='(H-h)/2+${vyb}':shortest=1,format=yuv420p[base]`);
+    } else {
+      filters.push(`[0:v]${fitChain},format=yuv420p[base]`);
+    }
   } else {
     filters.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${DUR},format=yuv420p[base]`);
   }
@@ -86,7 +145,19 @@ export function buildFfmpegArgs(
   let vN = 0;
   const between = (sMs: number, dMs: number) => `between(t,${(sMs / 1000).toFixed(3)},${((sMs + dMs) / 1000).toFixed(3)})`;
 
+  // background image doubles as the [bg] source — don't also draw it on top
+  const bgImageId =
+    chromaOn ? ((baseClip as VideoClip).bgImageClipId ?? null) : null;
+  const bgInUse =
+    chromaOn &&
+    (baseClip as VideoClip).bgReplace === 'image' &&
+    bgImageId != null &&
+    idxOf.has(`image:${bgImageId}`)
+      ? bgImageId
+      : null;
+
   for (const c of images) {
+    if (bgInUse != null && c.id === bgInUse) continue;
     const i = idxOf.get(`image:${c.id}`);
     if (i == null) continue;
     const ov = `ov${vN}`;
@@ -149,7 +220,7 @@ export function buildFfmpegArgs(
 
   return {
     args,
-    description: `render ${W}x${H}@${fps} ${DUR}s — ${videos.length}v/${images.length}img/${texts.length}txt/${audios.length}aud, base audio ${opts.baseHasAudio ? 'yes' : 'no'}`,
+    description: `render ${W}x${H}@${fps} ${DUR}s — ${videos.length}v/${images.length}img/${texts.length}txt/${audios.length}aud, base audio ${opts.baseHasAudio ? 'yes' : 'no'}${hasBase ? `, fit ${fit}` : ''}${chromaOn ? `, chroma-key over ${(baseClip as VideoClip).bgReplace ?? 'black'}` : ''}`,
     warnings,
   };
 }
