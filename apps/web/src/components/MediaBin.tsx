@@ -59,6 +59,7 @@ export default function MediaBin() {
   const unsupportedIds = useEditor((s) => s.unsupportedIds);
   const srtRef = useRef<HTMLInputElement>(null);
   const jsonRef = useRef<HTMLInputElement>(null);
+  const dumpRef = useRef<HTMLInputElement>(null);
 
   // (moved to lib/captions.ts so keybindings share the same behavior)
   const addText = addCaptionPersist;
@@ -108,6 +109,20 @@ export default function MediaBin() {
     download('memeit-project.json', JSON.stringify(serializeProject(project), null, 2), 'application/json');
   };
 
+  const exportDump = async () => {
+    const { exportDump } = await import('../lib/dump');
+    await exportDump();
+  };
+
+  const importDump = async (f: File) => {
+    try {
+      const { importDump } = await import('../lib/dump');
+      await importDump(f);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not read data dump.');
+    }
+  };
+
   const importJson = async (f: File) => {
     try {
       const parsed = ProjectSchema.safeParse(JSON.parse(await f.text()));
@@ -154,6 +169,9 @@ export default function MediaBin() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => jsonRef.current?.click()}>⬆ Import JSON</DropdownMenuItem>
               <DropdownMenuItem onClick={exportJson}>⬇ Export JSON</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => dumpRef.current?.click()}>⬆ Import data dump (.zip)</DropdownMenuItem>
+              <DropdownMenuItem onClick={exportDump}>⬇ Export data dump (.zip)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -177,6 +195,17 @@ export default function MediaBin() {
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void importJson(f);
+          e.target.value = '';
+        }}
+      />
+      <input
+        ref={dumpRef}
+        type="file"
+        accept=".zip,application/zip"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void importDump(f);
           e.target.value = '';
         }}
       />

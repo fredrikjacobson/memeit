@@ -244,6 +244,17 @@ function TopActions() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
+  const exportDump = async () => {
+    const { exportDump } = await import('./lib/dump');
+    setBusy('Packing…');
+    try {
+      await exportDump();
+      setBusy(null);
+    } catch (e) {
+      setBusy(null);
+      alert(`Dump export failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const render = async () => {
     const { renderProject } = await import('./lib/render');
     setBusy('Starting…');
@@ -263,6 +274,9 @@ function TopActions() {
       </Button>
       <Button variant="ghost" size="sm" onClick={exportJson} disabled={!!busy}>
         Export JSON
+      </Button>
+      <Button variant="ghost" size="sm" onClick={exportDump} disabled={!!busy} title="Download project.json + all media as one .zip">
+        Export ZIP
       </Button>
       <Button size="sm" onClick={render} disabled={!!busy}>
         {busy ? '⏳ Rendering…' : '⬇ Render MP4'}
