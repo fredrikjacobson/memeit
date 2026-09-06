@@ -1,5 +1,6 @@
 import { useEditor } from '../store';
 import { fileForUpload } from './bgai';
+import { slugify } from './projectName';
 
 export type RenderState = { status: string; warnings?: string[]; log?: string };
 
@@ -41,7 +42,7 @@ export async function renderProject(onProgress: (s: string) => void): Promise<vo
       onProgress('Downloading…');
       const a = document.createElement('a');
       a.href = `/api/renders/${jobId}/file`;
-      a.download = `memeit-${jobId}.mp4`;
+      a.download = `${slugify(project.name, `memeit-${jobId}`)}.mp4`;
       a.click();
       if (job.warnings?.length) alert(`Rendered with notes:\n- ${job.warnings.join('\n- ')}`);
       return;

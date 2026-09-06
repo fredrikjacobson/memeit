@@ -36,6 +36,7 @@ and test-render one from the command line.
 | Field | Type | Range / default | Required |
 |---|---|---|---|
 | `version` | `number` | must be exactly `1` | **yes** (no default) |
+| `name` | `string` | max 120 chars, default `'Untitled'` | no |
 | `width` | `number` | default `1080` | no |
 | `height` | `number` | default `1920` | no |
 | `fps` | `number` | 15–60, default `30` | no |

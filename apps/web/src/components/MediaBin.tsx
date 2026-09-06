@@ -1,14 +1,12 @@
 import { useRef } from 'react';
-import { ProjectSchema, formatSrt, parseSrt } from '@memeit/timeline';
-import { useEditor, uid } from '../store';
+import { useEditor } from '../store';
 import { addMediaFiles } from '../lib/media';
 import { cancelAiJob, startAiBackgroundRemoval, useBgAi } from '../lib/bgai';
 import TtsPanel from './TtsPanel';
 import YoutubePanel from './YoutubePanel';
-import { addCaptionPersist, addSubtitleAfterLast, baseTextStyle } from '../lib/captions';
+import { addCaptionPersist, addSubtitleAfterLast } from '../lib/captions';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 
 const DOT: Record<string, string> = {
   video: 'var(--chart-2)',
@@ -57,78 +55,9 @@ export default function MediaBin() {
   const select = useEditor((s) => s.select);
   const selectedId = useEditor((s) => s.selectedId);
   const unsupportedIds = useEditor((s) => s.unsupportedIds);
-  const srtRef = useRef<HTMLInputElement>(null);
-  const jsonRef = useRef<HTMLInputElement>(null);
 
   // (moved to lib/captions.ts so keybindings share the same behavior)
   const addText = addCaptionPersist;
-
-  const importSrt = async (f: File) => {
-    const raw = await f.text();
-    const cues = parseSrt(raw);
-    if (cues.length === 0) {
-      alert('No valid SRT cues found.');
-      return;
-    }
-    const st = useEditor.getState();
-    const maxEnd = Math.max(...cues.map((c) => c.endMs));
-    if (maxEnd > st.project.durationMs) {
-      st.updateProject((p) => ({ ...p, durationMs: Math.min(300_000, maxEnd + 1000) }));
-    }
-    cues.forEach((cue, i) => {
-      st.addClip({
-        id: uid(),
-        kind: 'text',
-        text: cue.text,
-        startMs: Math.round(cue.startMs),
-        durationMs: Math.max(500, Math.round(cue.endMs - cue.startMs)),
-        ...baseTextStyle(i % 2 === 1 ? 0.35 : -0.35),
-      });
-    });
-  };
-
-  const exportSrt = () => {
-    const cues = project.clips
-      .filter((c) => c.kind === 'text')
-      .sort((a, b) => a.startMs - b.startMs)
-      .map((c) => ({
-        startMs: c.kind === 'text' ? c.startMs : 0,
-        endMs: c.startMs + c.durationMs,
-        text: c.kind === 'text' ? c.text : '',
-      }));
-    if (cues.length === 0) {
-      alert('No text clips to export.');
-      return;
-    }
-    download('memeit-subtitles.srt', formatSrt(cues), 'text/plain');
-  };
-
-  const exportJson = async () => {
-    const { serializeProject } = await import('../lib/persist');
-    download('memeit-project.json', JSON.stringify(serializeProject(project), null, 2), 'application/json');
-  };
-
-  const importJson = async (f: File) => {
-    try {
-      const parsed = ProjectSchema.safeParse(JSON.parse(await f.text()));
-      if (!parsed.success) {
-        alert('Invalid project JSON.');
-        return;
-      }
-      const { rehydrateProject, fitProjectToClips } = await import('../lib/persist');
-      const { project: hydrated, missing } = await rehydrateProject(parsed.data);
-      const st = useEditor.getState();
-      st.updateProject(() => fitProjectToClips(hydrated));
-      st.select(null);
-      st.setTime(0);
-      if (missing.length > 0) {
-        const names = hydrated.clips.filter((c) => missing.includes(c.id)).map((c) => c.name ?? c.id);
-        alert(`Project loaded, but ${missing.length} file(s) are missing (re-link them in Media):\n- ${names.join('\n- ')}`);
-      }
-    } catch {
-      alert('Could not read project JSON.');
-    }
-  };
 
   return (
     <div>
@@ -143,43 +72,7 @@ export default function MediaBin() {
         <Button variant="outline" size="icon" className="h-[34px] w-[38px] text-xs font-bold" onClick={addSubtitleAfterLast} title="Next subtitle line (s)">
           S+
         </Button>
-        <div className="ml-auto">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-[34px] w-[38px]" title="Subtitles / project files">⋯</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => srtRef.current?.click()}>⬆ Import SRT</DropdownMenuItem>
-              <DropdownMenuItem onClick={exportSrt}>⬇ Export SRT</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => jsonRef.current?.click()}>⬆ Import JSON</DropdownMenuItem>
-              <DropdownMenuItem onClick={exportJson}>⬇ Export JSON</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
       </div>
-      <input
-        ref={srtRef}
-        type="file"
-        accept=".srt,text/plain"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void importSrt(f);
-          e.target.value = '';
-        }}
-      />
-      <input
-        ref={jsonRef}
-        type="file"
-        accept=".json,application/json"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void importJson(f);
-          e.target.value = '';
-        }}
-      />
 
       <div className="mt-3 flex flex-col gap-1.5">
         <YoutubePanel />
@@ -315,13 +208,4 @@ function RelinkButton({ clipId, kind }: { clipId: string; kind: string }) {
       />
     </>
   );
-}
-
-function download(name: string, text: string, type: string) {
-  const blob = new Blob([text], { type });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
