@@ -114,7 +114,8 @@ export function createApp(opts: AppOptions = {}) {
       for (const c of project.clips) {
         if (c.kind !== 'text') continue;
         const out = join(assetDir, `text-${c.id}.png`);
-        await renderTextPng(c, project.width, project.height, out);
+        const hasPositionKeyframes = (c.keyframes?.length ?? 0) > 0;
+        await renderTextPng(c, project.width, project.height, out, { anchorCenter: hasPositionKeyframes });
         textPngs.push({ clipId: c.id, path: out });
       }
 

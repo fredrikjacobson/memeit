@@ -1,4 +1,5 @@
 import type { AudioClip, ImageClip, Project, TextClip, VideoClip } from '@memeit/timeline';
+import { textPositionKeyframePoints } from '@memeit/timeline';
 
 export type ResolvedAsset = {
   clipId: string;
@@ -17,9 +18,12 @@ export type RenderPlan = {
 // - base video may have chroma-key ('chroma') or client-side AI cutout ('ai')
 //   background removal, composited over black / solid color / another image clip
 // - image overlays scaled by clip.scale, positioned from normalized x/y
-// - text overlays are pre-rendered full-frame PNGs (see text.ts), overlaid 0:0
+// - text overlays are pre-rendered full-frame PNGs (see text.ts); clips with no
+//   position keyframes overlay at a fixed 0:0 (position baked into the PNG),
+//   clips with keyframes render anchored at canvas center and overlay at a
+//   time-varying x/y expression mirroring the preview's interpolation
 // - audio: base video audio (if probed present) + N tracks via adelay+amix
-// NOTE: keyframed text motion is preview-only in V1 — text renders at base x/y.
+// NOTE: font-size keyframes are still preview-only in export (base fontSize is used).
 export function buildFfmpegArgs(
   project: Project,
   assets: ResolvedAsset[],
@@ -40,8 +44,17 @@ export function buildFfmpegArgs(
 
   const baseClip = videos[0] as VideoClip | undefined;
   if (videos.length > 1) warnings.push(`${videos.length - 1} extra video clip(s) ignored in V1 — only the first is used as base.`);
-  const kfCount = texts.reduce((n, t) => n + (t.keyframes?.length ?? 0), 0);
-  if (kfCount > 0) warnings.push(`Text keyframes (${kfCount}) are preview-only in V1 — export uses base position.`);
+  // position keyframes ARE honored in export (see text overlay loop below);
+  // font-size keyframes are not — warn only when that actually matters.
+  const fontSizeKfCount = texts.reduce(
+    (n, t) => n + (t.keyframes ?? []).filter((k) => k.fontSize != null && k.fontSize !== t.fontSize).length,
+    0
+  );
+  if (fontSizeKfCount > 0) {
+    warnings.push(
+      `Font-size keyframes (${fontSizeKfCount}) are preview-only — export uses the clip's base fontSize; position keyframes are honored.`
+    );
+  }
 
   // input index bookkeeping: idxOf maps a key -> ffmpeg input index
   // seekMs applies `-ss` *before* `-i` (fast input seek into cut pieces)
@@ -168,6 +181,34 @@ export function buildFfmpegArgs(
   let vN = 0;
   const between = (sMs: number, dMs: number) => `between(t,${(sMs / 1000).toFixed(3)},${((sMs + dMs) / 1000).toFixed(3)})`;
 
+  // Builds an ffmpeg expression that's flat before the first point, linear
+  // between points, and flat after the last — mirrors the timeline package's
+  // evalTextAt() interpolation so export motion matches the preview. Commas
+  // are fine unescaped here (same as the existing between(t,a,b) calls
+  // below) since the whole expression is wrapped in single quotes at the
+  // call site, which ffmpeg's filtergraph parser takes literally.
+  const piecewiseExpr = (points: { t: number; v: number }[]): string => {
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    // Collapse points sharing a timestamp (e.g. an explicit keyframe at the
+    // clip's own offsetMs 0, coinciding with the implicit base point) down
+    // to the last one — otherwise the zero-length segment between them
+    // divides by (a value that rounds to) 0.000 once formatted for ffmpeg.
+    const pts: { t: number; v: number }[] = [];
+    for (const p of sorted) {
+      if (pts.length > 0 && pts[pts.length - 1]!.t.toFixed(3) === p.t.toFixed(3)) pts[pts.length - 1] = p;
+      else pts.push(p);
+    }
+    const seg = (i: number): string => {
+      if (i === pts.length - 1) return pts[i]!.v.toFixed(3);
+      const a = pts[i]!;
+      const b = pts[i + 1]!;
+      const span = Math.max(1e-6, b.t - a.t);
+      const lerp = `(${a.v.toFixed(3)}+(${(b.v - a.v).toFixed(3)})*(t-${a.t.toFixed(3)})/${span.toFixed(3)})`;
+      return `if(lt(t,${b.t.toFixed(3)}),${lerp},${seg(i + 1)})`;
+    };
+    return pts.length === 1 ? pts[0]!.v.toFixed(3) : `if(lt(t,${pts[0]!.t.toFixed(3)}),${pts[0]!.v.toFixed(3)},${seg(0)})`;
+  };
+
   // background image doubles as the [bg] source — don't also draw it on top
   const bgImageId =
     keyedOn ? ((baseClip as VideoClip).bgImageClipId ?? null) : null;
@@ -200,7 +241,17 @@ export function buildFfmpegArgs(
     const i = idxOf.get(`text:${t.id}`);
     if (i == null) continue;
     const out = `v${vN}`;
-    filters.push(`${cur}[${i}:v]overlay=0:0:enable='${between(t.startMs, t.durationMs)}'[${out}]`);
+    const hasPositionKeyframes = (t.keyframes?.length ?? 0) > 0;
+    if (hasPositionKeyframes) {
+      // PNG was rendered anchored at canvas center (see text.ts); move the
+      // whole PNG over time to reproduce the preview's keyframed motion.
+      const points = textPositionKeyframePoints(t);
+      const xExpr = piecewiseExpr(points.map((p) => ({ t: (t.startMs + p.offsetMs) / 1000, v: p.x * W })));
+      const yExpr = piecewiseExpr(points.map((p) => ({ t: (t.startMs + p.offsetMs) / 1000, v: p.y * H })));
+      filters.push(`${cur}[${i}:v]overlay=x='${xExpr}':y='${yExpr}':enable='${between(t.startMs, t.durationMs)}'[${out}]`);
+    } else {
+      filters.push(`${cur}[${i}:v]overlay=0:0:enable='${between(t.startMs, t.durationMs)}'[${out}]`);
+    }
     cur = `[${out}]`;
     vN += 1;
   }

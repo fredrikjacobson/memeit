@@ -5,15 +5,19 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./json-schema": "./dist/json-schema.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/gen-json-schema.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dev": "tsc -w -p tsconfig.json"
+    "dev": "tsc -w -p tsconfig.json",
+    "gen:schema": "node scripts/gen-json-schema.mjs",
+    "gen:schema:check": "node scripts/gen-json-schema.mjs --check"
   },
   "dependencies": {
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "3.23.5"
   },
   "devDependencies": {
     "typescript": "^5.6.2"
