@@ -36,7 +36,7 @@ Test the tarball locally before publishing:
 ```bash
 pnpm --filter meme-it build
 (cd packages/memeit && npm pack --pack-destination /tmp)
-npx --yes /tmp/meme-it-0.1.0.tgz --help
+npx --yes /tmp/meme-it-0.3.0.tgz --help
 ```
 
 ## System deps (not bundled)
