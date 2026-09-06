@@ -12,6 +12,8 @@ npx meme-it --data-dir ~/.memeit-data
 
 * `src/cli.ts` parses args, checks `ffmpeg`/`yt-dlp`, then starts the Express app from
   `services/render-api/src/app.ts` via `createApp({ dataDir, publicDir })`.
+  With a `verify`/`render` subcommand it instead validates or renders a
+  project file headlessly (no server) — see [AGENTS.md](../../AGENTS.md).
 * The web UI is the production `apps/web` build, copied to `public/` at build time
   (`scripts/build-ui.mjs`) and served with the COOP/COEP headers the WASM background
   removal needs. Non-`/api` GETs fall back to `index.html` (SPA).

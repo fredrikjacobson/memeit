@@ -2,6 +2,11 @@
 
 Web app, local single-user. 10s typical, up to 3 min.
 
+> **AI agents:** see [AGENTS.md](./AGENTS.md) — write a `project.json`,
+> validate it with `pnpm verify`, render headless with `pnpm render`.
+> Start from `docs/examples/text-only.json`.
+> (`pnpm verify:api` is the slower API-backed end-to-end check.)
+
 ## Run
 
 ```bash

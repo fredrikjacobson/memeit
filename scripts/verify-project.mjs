@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Validates a Project JSON file against the canonical zod schema, and
-// (unless --no-render) proves it actually renders by self-starting a
-// render-api instance in-process and driving the real /api/renders flow.
+// Validates a Project JSON file (zod schema + the same semantic checks as
+// `memeit verify`), and (unless --no-render) proves it actually renders by
+// self-starting a render-api instance in-process and driving the real
+// /api/renders flow.
 //
-// Requires `pnpm -r build` to have run first, so @memeit/timeline and
-// @memeit/render-api have built `dist/` output (see docs/project-format.md
+// Requires built `dist/` output for @memeit/timeline and @memeit/render-api —
+// `pnpm verify:api` builds exactly that first (see docs/project-format.md
 // and docs/render-api.md for the format/API this script exercises).
 //
 // Usage:
@@ -91,17 +92,23 @@ async function main() {
     process.exit(1);
   }
 
-  const { ProjectSchema } = await import(join(repoRoot, 'packages/timeline/dist/index.js'));
-  const parsed = ProjectSchema.safeParse(data);
-  if (!parsed.success) {
-    console.error(`Project failed schema validation (${args.projectPath}):`);
-    for (const issue of parsed.error.issues) {
-      const path = issue.path.join('.') || '(root)';
-      console.error(`  ${path}: ${issue.message} [${issue.code}]`);
-    }
+  // Same verdict core as `memeit verify` (packages/timeline/src/verify.ts):
+  // schema + semantic checks. No checkFiles here — this script attaches
+  // asset bytes by clip id at render time, so `src` strings are descriptive
+  // only (see docs/render-api.md) and must not be resolved as files.
+  const { verifyProject } = await import(join(repoRoot, 'packages/timeline/dist/index.js'));
+  const result = verifyProject(data);
+  for (const e of result.errors) {
+    console.error(`  ERROR [${e.code}]${e.clipId ? ` (${e.clipId})` : ''} ${e.message}`);
+  }
+  for (const w of result.warnings) {
+    console.log(`  WARN  [${w.code}]${w.clipId ? ` (${w.clipId})` : ''} ${w.message}`);
+  }
+  if (!result.ok) {
+    console.error(`Project failed validation (${args.projectPath}).`);
     process.exit(1);
   }
-  const project = parsed.data;
+  const project = result.project;
   const byKind = project.clips.reduce((m, c) => ((m[c.kind] = (m[c.kind] ?? 0) + 1), m), {});
   const kindsSummary = Object.entries(byKind).map(([k, n]) => `${n} ${k}`).join(', ') || 'no clips';
   console.log(
