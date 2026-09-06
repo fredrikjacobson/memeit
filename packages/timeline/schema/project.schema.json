@@ -1,0 +1,414 @@
+{
+  "$ref": "#/definitions/Project",
+  "definitions": {
+    "Project": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "width": {
+          "type": "number",
+          "default": 1080
+        },
+        "height": {
+          "type": "number",
+          "default": 1920
+        },
+        "fps": {
+          "type": "number",
+          "minimum": 15,
+          "maximum": 60,
+          "default": 30
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 500,
+          "maximum": 300000,
+          "default": 10000
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "startMs": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 300000
+                  },
+                  "durationMs": {
+                    "type": "number",
+                    "minimum": 100,
+                    "maximum": 300000
+                  },
+                  "kind": {
+                    "type": "string",
+                    "const": "video"
+                  },
+                  "src": {
+                    "type": "string"
+                  },
+                  "volume": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 1
+                  },
+                  "scale": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 4,
+                    "default": 1
+                  },
+                  "x": {
+                    "type": "number",
+                    "default": 0
+                  },
+                  "y": {
+                    "type": "number",
+                    "default": 0
+                  },
+                  "srcOffsetMs": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 300000,
+                    "default": 0
+                  },
+                  "fit": {
+                    "type": "string",
+                    "enum": [
+                      "cover",
+                      "contain",
+                      "stretch"
+                    ],
+                    "default": "cover"
+                  },
+                  "bgRemove": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "chroma",
+                      "ai"
+                    ],
+                    "default": "off"
+                  },
+                  "bgAiSrc": {
+                    "type": "string"
+                  },
+                  "bgAiStatus": {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "loading",
+                      "processing",
+                      "done",
+                      "error"
+                    ],
+                    "default": "idle"
+                  },
+                  "bgAiProgress": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0
+                  },
+                  "bgAiModel": {
+                    "type": "string"
+                  },
+                  "bgAiError": {
+                    "type": "string"
+                  },
+                  "chromaColor": {
+                    "type": "string",
+                    "default": "#00FF00"
+                  },
+                  "chromaSimilarity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.3
+                  },
+                  "chromaBlend": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.1
+                  },
+                  "bgReplace": {
+                    "type": "string",
+                    "enum": [
+                      "black",
+                      "color",
+                      "image"
+                    ],
+                    "default": "black"
+                  },
+                  "bgColor": {
+                    "type": "string",
+                    "default": "#000000"
+                  },
+                  "bgImageClipId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "startMs",
+                  "durationMs",
+                  "kind",
+                  "src"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/id"
+                  },
+                  "name": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/name"
+                  },
+                  "startMs": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/startMs"
+                  },
+                  "durationMs": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/durationMs"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "const": "image"
+                  },
+                  "src": {
+                    "type": "string"
+                  },
+                  "scale": {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 4,
+                    "default": 1
+                  },
+                  "x": {
+                    "type": "number",
+                    "default": 0
+                  },
+                  "y": {
+                    "type": "number",
+                    "default": 0
+                  },
+                  "bgRemove": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "ai"
+                    ],
+                    "default": "off"
+                  },
+                  "bgAiSrc": {
+                    "type": "string"
+                  },
+                  "bgAiStatus": {
+                    "type": "string",
+                    "enum": [
+                      "idle",
+                      "loading",
+                      "processing",
+                      "done",
+                      "error"
+                    ],
+                    "default": "idle"
+                  },
+                  "bgAiProgress": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0
+                  },
+                  "bgAiModel": {
+                    "type": "string"
+                  },
+                  "bgAiError": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "startMs",
+                  "durationMs",
+                  "kind",
+                  "src"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/id"
+                  },
+                  "name": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/name"
+                  },
+                  "startMs": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/startMs"
+                  },
+                  "durationMs": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/durationMs"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "const": "text"
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 280
+                  },
+                  "font": {
+                    "type": "string",
+                    "default": "Impact"
+                  },
+                  "fontSize": {
+                    "type": "number",
+                    "minimum": 12,
+                    "maximum": 200,
+                    "default": 64
+                  },
+                  "color": {
+                    "type": "string",
+                    "default": "#ffffff"
+                  },
+                  "strokeColor": {
+                    "type": "string",
+                    "default": "#000000"
+                  },
+                  "strokeWidth": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 20,
+                    "default": 4
+                  },
+                  "x": {
+                    "type": "number",
+                    "default": 0
+                  },
+                  "y": {
+                    "type": "number",
+                    "default": -0.35
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "offsetMs": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 300000
+                        },
+                        "x": {
+                          "type": "number",
+                          "minimum": -1,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": -1,
+                          "maximum": 1
+                        },
+                        "fontSize": {
+                          "type": "number",
+                          "minimum": 12,
+                          "maximum": 200
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "offsetMs",
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "default": []
+                  }
+                },
+                "required": [
+                  "id",
+                  "startMs",
+                  "durationMs",
+                  "kind",
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/id"
+                  },
+                  "name": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/name"
+                  },
+                  "startMs": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/startMs"
+                  },
+                  "durationMs": {
+                    "$ref": "#/definitions/Project/properties/clips/items/anyOf/0/properties/durationMs"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "const": "audio"
+                  },
+                  "src": {
+                    "type": "string"
+                  },
+                  "volume": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2,
+                    "default": 1
+                  },
+                  "srcOffsetMs": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 300000,
+                    "default": 0
+                  }
+                },
+                "required": [
+                  "id",
+                  "startMs",
+                  "durationMs",
+                  "kind",
+                  "src"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

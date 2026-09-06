@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 export * from './srt.js';
+// NOTE: projectJsonSchema (json-schema.ts) is intentionally NOT re-exported
+// here — it imports ProjectSchema from this file, so re-exporting it would
+// create a circular index.ts <-> json-schema.ts dependency. Import it via
+// the `@memeit/timeline/json-schema` subpath instead (see package.json).
 
 // 10s typical, 2-3min max -> cap at 5min for safety, 30fps max
 export const ClipBase = z.object({
@@ -10,12 +14,19 @@ export const ClipBase = z.object({
   durationMs: z.number().min(100).max(5 * 60 * 1000),
 });
 
+// Coordinate convention: on every clip type below, `x`/`y` are normalized
+// offsets from canvas center, conventionally -0.5..0.5 (0,0 = centered).
+// This is NOT enforced by the schema (renderer intentionally allows panning
+// off-canvas), so agents/tools generating projects should stick to this
+// range unless deliberately positioning something off-screen.
+// `Keyframe.x`/`y` (below) use a different, wider -1..1 range since they
+// describe motion across the full canvas span, not a static offset.
 export const VideoClipSchema = ClipBase.extend({
   kind: z.literal('video'),
   src: z.string(), // local path or blobURL (preview) / file id (render)
   volume: z.number().min(0).max(1).default(1),
   scale: z.number().min(0.1).max(4).default(1),
-  x: z.number().default(0), // -0.5..0.5 normalized offset
+  x: z.number().default(0), // -0.5..0.5 normalized offset (see convention note above)
   y: z.number().default(0),
   // offset into the source file where this clip starts (set by split)
   srcOffsetMs: z.number().min(0).max(5 * 60 * 1000).default(0),
@@ -58,6 +69,8 @@ export const KeyframeSchema = z.object({
   id: z.string(),
   // offset from clip.startMs — robust when clip is moved
   offsetMs: z.number().min(0).max(5 * 60 * 1000),
+  // -1..1: wider than a clip's own -0.5..0.5 x/y range because a keyframe
+  // describes a motion target across the full canvas span, not a centered offset.
   x: z.number().min(-1).max(1),
   y: z.number().min(-1).max(1),
   fontSize: z.number().min(12).max(200).optional(),
@@ -75,6 +88,9 @@ export const TextClipSchema = ClipBase.extend({
   strokeWidth: z.number().min(0).max(20).default(4),
   x: z.number().default(0), // normalized -0.5..0.5
   y: z.number().default(-0.35), // default top meme position
+  // Position (x/y) keyframes are honored by both the live preview and the
+  // ffmpeg export. Font-size keyframes are preview-only for now — export
+  // always uses the clip's base `fontSize`. See docs/project-format.md#known-limitations.
   keyframes: z.array(KeyframeSchema).default([]),
 });
 
@@ -148,6 +164,23 @@ export function evalTextAt(clip: TextClip, absTimeMs: number): TextTransform {
   return { x: last.x, y: last.y, fontSize: last.fontSize ?? base.fontSize };
 }
 
+/**
+ * The same base+keyframes point list `evalTextAt` interpolates over, but
+ * position-only (no fontSize) — used by @memeit/renderer to build a
+ * time-varying ffmpeg overlay expression so exported video matches the
+ * preview's keyframed motion. Always includes an implicit point at
+ * offsetMs 0 for the clip's own base x/y, matching `evalTextAt`.
+ */
+export function textPositionKeyframePoints(
+  clip: TextClip
+): { offsetMs: number; x: number; y: number }[] {
+  const base = { offsetMs: 0, x: clip.x, y: clip.y };
+  const kfs = [...(clip.keyframes ?? [])]
+    .sort((a, b) => a.offsetMs - b.offsetMs)
+    .map((k) => ({ offsetMs: k.offsetMs, x: k.x, y: k.y }));
+  return [base, ...kfs];
+}
+
 export function nearestKeyframe(clip: TextClip, absTimeMs: number, tolMs = 150) {
   const offset = absTimeMs - clip.startMs;
   let best: Keyframe | null = null;
@@ -171,4 +204,6 @@ export const createDefaultProject = (): Project => ({
   clips: [],
 });
 
-export const uid = () => Math.random().toString(36).slice(2, 10);
+// Full UUID (not truncated) so ids are actually collision-safe — agents
+// generating clips programmatically can rely on this, or supply their own.
+export const uid = () => crypto.randomUUID();

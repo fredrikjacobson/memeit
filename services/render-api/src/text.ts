@@ -3,12 +3,21 @@ import sharp from 'sharp';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export async function renderTextPng(clip: TextClip, W: number, H: number, outPath: string): Promise<void> {
+export async function renderTextPng(
+  clip: TextClip,
+  W: number,
+  H: number,
+  outPath: string,
+  opts: { anchorCenter?: boolean } = {}
+): Promise<void> {
   const scale = W / 1080;
   const fontSize = Math.max(12, clip.fontSize * scale);
   const stroke = Math.max(0, clip.strokeWidth * scale);
-  const cx = W / 2 + clip.x * W;
-  const cy = H / 2 + clip.y * H;
+  // Clips with position keyframes are rendered anchored at canvas center —
+  // the renderer then moves the whole PNG over time via a time-varying
+  // ffmpeg overlay offset instead of baking one fixed position into the pixels.
+  const cx = opts.anchorCenter ? W / 2 : W / 2 + clip.x * W;
+  const cy = opts.anchorCenter ? H / 2 : H / 2 + clip.y * H;
   const lines = clip.text.split('\n').slice(0, 8);
   const lh = fontSize * 1.12;
   const startY = cy - ((lines.length - 1) * lh) / 2;
