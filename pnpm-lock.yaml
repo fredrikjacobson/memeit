@@ -120,9 +120,6 @@ importers:
 
   packages/memeit:
     dependencies:
-      '@memeit/tracker':
-        specifier: workspace:*
-        version: link:../tracker
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -149,6 +146,9 @@ importers:
       '@memeit/timeline':
         specifier: workspace:*
         version: link:../timeline
+      '@memeit/tracker':
+        specifier: workspace:*
+        version: link:../tracker
       '@types/cors':
         specifier: ^2.8.17
         version: 2.8.17
