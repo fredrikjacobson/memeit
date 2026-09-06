@@ -1,7 +1,7 @@
 {
   "name": "meme-it",
   "version": "0.2.0",
-  "description": "Meme video editor — local single-user server + web UI. Run with `npx memeit`.",
+  "description": "Meme video editor \u2014 local single-user server + web UI. Run with `npx memeit`.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -25,7 +25,8 @@
     "express": "^4.19.2",
     "multer": "^2.3.0",
     "sharp": "^0.35.4",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@memeit/tracker": "workspace:*"
   },
   "optionalDependencies": {
     "@google-cloud/text-to-speech": "^7.0.0"

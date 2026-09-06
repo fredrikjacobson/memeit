@@ -80,6 +80,39 @@ plan description and, on failure, the tail of ffmpeg's stderr.
 Once `status === 'done'`, downloads the rendered `.mp4`. Returns HTTP 409 with the job's
 `log` if called before the job is done, or 404 if the job id doesn't exist.
 
+## `POST /api/tracks`
+
+Auto-track a solid-color screen in an uploaded video clip into position
+keyframes for an image clip — same multipart shape as renders (`project` text
+field + one file field per clip, field name = clip `id`), plus text fields:
+
+- **`videoId` / `targetId`** (required): video clip to track, image clip
+  receiving keyframes.
+- Optional: `trackFps` (1–30, default `8`), `threshold` (0–255, default `60`),
+  `smooth` (≥1, default `3`), `minDelta` (0–1), `maxKeys` (≥2, default `80`),
+  `roi` (`x,y,w,h` in source pixels), `fromMs` / `toMs` (project-time window).
+
+Key color comes from the video clip's `chromaColor`. Only the video clip's
+file is required. Returns `{ "jobId", "status": "tracking" }` immediately
+(HTTP 400 on a bad project, missing ids/fields, or a missing video file);
+poll `GET /api/tracks/:id` until `status` is `done` (with `keyframes`,
+`stats`, and a summary `log`) or `error` (reason in `log`):
+
+```bash
+curl -F "project=<meme.json" \
+     -F "videoId=bg" -F "targetId=card" \
+     -F "bg=@phone.mp4" \
+     http://localhost:3001/api/tracks
+# => {"jobId":"b157014f","status":"tracking"}
+
+curl http://localhost:3001/api/tracks/b157014f
+# => {"id":"b157014f","status":"done","keyframes":[...],"stats":{...},"log":"..."}
+```
+
+Apply the returned `keyframes` to the target image clip (replacing its
+existing ones) — the web editor's Track panel does exactly this via
+`updateClip`, so no project re-import is needed.
+
 ## Complete example
 
 Using the fixture from `docs/project-format.md` (clip ids `bg` and `caption`; only `bg`

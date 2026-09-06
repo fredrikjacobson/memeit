@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../../../services/render-api/src/app.js';
 import { runRender } from './render-cmd.js';
+import { runTrack } from './track-cmd.js';
 import { runVerify } from './verify-cmd.js';
 
 const execFileAsync = promisify(execFile);
@@ -38,11 +39,13 @@ Usage: memeit [options] | memeit <command> [options]
 Commands (headless, agent-friendly — no server needed):
   verify <project.json>   Validate a project file (schema + media files)
   render <project.json>   Render a project file to MP4 locally (needs ffmpeg)
+  track <project.json>    Auto-track a green/blue screen into image keyframes
   (no command)            Start the server + web UI (default)
 
 Examples:
   memeit verify docs/examples/text-only.json
   memeit render docs/examples/text-only.json --out /tmp/meme.mp4
+  memeit track meme.json --video bg --target card --out meme.tracked.json
 
 Options:
   -p, --port <n>       Port to listen on (default: $PORT or 3001)
@@ -131,6 +134,7 @@ async function main(): Promise<void> {
   // Headless subcommands (validate / render project JSON without a server).
   if (sub === 'verify') process.exit(runVerify(rest));
   if (sub === 'render') process.exit(await runRender(rest));
+  if (sub === 'track') process.exit(await runTrack(rest));
   if (sub === 'help') return printHelp();
 
   const args = parseArgs(argv);

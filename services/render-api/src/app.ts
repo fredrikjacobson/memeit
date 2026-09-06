@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ProjectSchema } from '@memeit/timeline';
 import { buildFfmpegArgs, type ResolvedAsset } from '@memeit/renderer';
+import { trackGreenScreen, type TrackKeyframe, type TrackStats } from '@memeit/tracker';
 import { renderTextPng } from './text.js';
 import { createTtsRouter } from './tts.js';
 import { createYoutubeRouter } from './youtube.js';
@@ -33,6 +34,14 @@ export function createApp(opts: AppOptions = {}) {
 
   type Job = { id: string; status: 'queued' | 'rendering' | 'done' | 'error'; log: string; warnings: string[] };
   const jobs = new Map<string, Job>();
+  type TrackJob = {
+    id: string;
+    status: 'queued' | 'tracking' | 'done' | 'error';
+    log: string;
+    keyframes: TrackKeyframe[] | null;
+    stats: TrackStats | null;
+  };
+  const trackJobs = new Map<string, TrackJob>();
 
   app.get('/api/health', async (_req, res) => {
     try {
@@ -166,6 +175,100 @@ export function createApp(opts: AppOptions = {}) {
     const p = join(dataDir, 'jobs', id, 'out.mp4');
     if (!existsSync(p)) return res.status(404).json({ error: 'file missing' });
     res.download(p, `memeit-${id}.mp4`);
+  });
+
+  // Auto-track a solid-color screen in an uploaded video clip and return
+  // position keyframes for an image clip. Multipart like /api/renders:
+  // `project` (JSON) + media files keyed by clip id, plus text fields
+  // videoId / targetId (required) and optional trackFps / threshold /
+  // smooth / minDelta / maxKeys / roi (x,y,w,h) / fromMs / toMs.
+  const numField = (v: unknown, name: string, min: number, max: number): number | undefined => {
+    if (v == null || v === '') return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max) throw new Error(`invalid ${name}: ${v}`);
+    return n;
+  };
+
+  app.post('/api/tracks', (req, res, next) => {
+    const id = randomUUID().slice(0, 8);
+    (req as unknown as { jobId: string }).jobId = id;
+    mkdirSync(join(dataDir, 'jobs', id, 'assets'), { recursive: true });
+    trackJobs.set(id, { id, status: 'queued', log: '', keyframes: null, stats: null });
+    next();
+  }, upload.any(), async (req, res) => {
+    const id = (req as unknown as { jobId: string }).jobId;
+    const job = trackJobs.get(id)!;
+    try {
+      const body = req.body as Record<string, string>;
+      const raw = body.project;
+      if (!raw) return res.status(400).json({ error: 'missing project field' });
+      const parsed = ProjectSchema.safeParse(JSON.parse(raw));
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const project = parsed.data;
+
+      const videoId = (body.videoId ?? '').trim();
+      const targetId = (body.targetId ?? '').trim();
+      if (!videoId || !targetId) return res.status(400).json({ error: 'missing videoId / targetId field' });
+      let roi: { x: number; y: number; w: number; h: number } | undefined;
+      if (body.roi != null && body.roi !== '') {
+        const parts = String(body.roi).split(',').map(Number);
+        if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n) || n < 0)) {
+          return res.status(400).json({ error: `invalid roi (want x,y,w,h): ${body.roi}` });
+        }
+        roi = { x: parts[0]!, y: parts[1]!, w: parts[2]!, h: parts[3]! };
+      }
+      let trackOpts;
+      try {
+        trackOpts = {
+          videoId,
+          targetId,
+          trackFps: numField(body.trackFps, 'trackFps', 1, 30),
+          threshold: numField(body.threshold, 'threshold', 0, 255),
+          smooth: numField(body.smooth, 'smooth', 1, 31),
+          minDelta: numField(body.minDelta, 'minDelta', 0, 1),
+          maxKeys: numField(body.maxKeys, 'maxKeys', 2, 1000),
+          roi,
+          fromMs: numField(body.fromMs, 'fromMs', 0, 300000),
+          toMs: numField(body.toMs, 'toMs', 0, 300000),
+        };
+      } catch (e) {
+        return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
+      }
+
+      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+      const saved = new Map<string, string>();
+      for (const f of files) saved.set(f.fieldname, f.path);
+      const videoPath = saved.get(videoId);
+      if (!videoPath || !existsSync(videoPath)) {
+        return res.status(400).json({ error: `no file attached for video clip "${videoId}" (field name = clip id)` });
+      }
+
+      job.status = 'tracking';
+      job.log = `tracking ${videoId} -> ${targetId}`;
+      res.json({ jobId: id, status: job.status });
+
+      // run async — frontend polls
+      try {
+        const result = await trackGreenScreen(project, videoPath, trackOpts);
+        job.keyframes = result.keyframes;
+        job.stats = result.stats;
+        job.status = 'done';
+        job.log = `${result.summary} -> ${result.keyframes.length} keyframes`;
+      } catch (e: unknown) {
+        job.status = 'error';
+        job.log = e instanceof Error ? e.message : String(e);
+      }
+    } catch (e) {
+      job.status = 'error';
+      job.log = String(e);
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get('/api/tracks/:id', (req, res) => {
+    const job = trackJobs.get(req.params.id as string);
+    if (!job) return res.status(404).json({ error: 'not found' });
+    res.json(job);
   });
 
   // Serve built web UI (single-server npx mode) with COOP/COEP for WASM threading.

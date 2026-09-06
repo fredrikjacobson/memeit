@@ -8,8 +8,10 @@ don't duplicate their field tables here):
 
 - [`docs/project-format.md`](docs/project-format.md) — `Project`/clip JSON
   reference, coordinate conventions, known limitations, worked example.
-- [`docs/render-api.md`](docs/render-api.md) — the `POST /api/renders` HTTP
+- [`docs/render-api.md`](render-api.md) — the `POST /api/renders` HTTP
   contract (note: `-F "project=<file"` with `<`, not `@`; field name = clip id).
+  `POST /api/tracks` (same multipart shape) auto-tracks a screen into image
+  keyframes and returns them as JSON — prefer it over hand-writing keyframes.
 - [`packages/timeline/schema/project.schema.json`](packages/timeline/schema/project.schema.json) —
   generated JSON Schema (regenerated from zod every build; never drifts).
   Point your file at it via `"$schema"` so editors validate live.
@@ -62,6 +64,14 @@ pure, no I/O). Exit 0 = valid (warnings ok) · 1 = errors (or warnings with
 `src` relative to the project dir, and runs the same `buildFfmpegArgs` filter
 graph as the server (H.264 + AAC, `+faststart`).
 
+`memeit track <project.json> --video <id> --target <id> [--assets-dir <dir>]
+[--out tracked.json]` auto-tracks a solid-color screen in the video clip
+(ffmpeg frames + sharp centroid, no new deps) and writes the relative motion
+as position keyframes on the image clip — the card keeps its manual base
+alignment, tracking only adds deltas. Key color comes from the video clip's
+`chromaColor`. Narrow `--from-ms/--to-ms` to the stable full-screen segment;
+entry/exit slivers are auto-dropped.
+
 ## Agent checklist
 
 1. Copy the closest example; keep `"$schema"`.
@@ -75,6 +85,6 @@ graph as the server (H.264 + AAC, `+faststart`).
 
 Repo map: `packages/timeline` (schemas/types/semantic verify) ·
 `packages/renderer` (`buildFfmpegArgs`) · `services/render-api` (HTTP API +
-text PNG pre-render) · `packages/memeit` (CLI: serve/verify/render) ·
+text PNG pre-render) · `packages/memeit` (CLI: serve/verify/render/track) ·
 `apps/web` (editor UI) · `docs/` (agent docs + examples) ·
 `scripts/verify-project.mjs` (same verdict core + API render check).

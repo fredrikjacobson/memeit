@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { evalImageAt, evalTextAt, isClipActiveAt, nearestKeyframe, uid, type ImageClip, type TextClip } from '@memeit/timeline';
+import { bgImageIds, evalImageAt, evalTextAt, isClipActiveAt, nearestKeyframe, uid, type ImageClip, type TextClip } from '@memeit/timeline';
 import { useEditor } from '../store';
 import { aiDisplaySrc, useBgAi } from '../lib/bgai';
 import { Button } from './ui/button';
@@ -20,14 +20,14 @@ export default function Preview() {
   const videoClips = project.clips.filter((c) => c.kind === 'video');
   const activeVideo = videoClips.find((c) => isClipActiveAt(c, currentTimeMs)) ?? videoClips[0];
   const activeTexts = project.clips.filter((c) => c.kind === 'text' && isClipActiveAt(c, currentTimeMs));
-  // image picked as this video's replacement background lives behind the video
-  // (export consumes it as [bg]) — don't also draw it as a foreground overlay
-  const activeBgImageId =
+  // images picked as this video's replacement backgrounds live behind the video
+  // (export consumes them as [bg]) — don't also draw them as foreground overlays
+  const activeBgImageIds =
     activeVideo && activeVideo.kind === 'video' &&
     (activeVideo.bgRemove ?? 'off') !== 'off' &&
     (activeVideo.bgReplace ?? 'black') === 'image'
-      ? (activeVideo.bgImageClipId ?? null)
-      : null;
+      ? bgImageIds(activeVideo)
+      : [];
   // AI cutout ready? swap the video src for the processed transparent WebM
   const activeVideoSrc =
     activeVideo && activeVideo.kind === 'video'
@@ -37,7 +37,7 @@ export default function Preview() {
   const activeAiRunning =
     !!activeAiJob && (activeAiJob.phase === 'loading' || activeAiJob.phase === 'processing' || activeAiJob.phase === 'encoding');
   const activeImages = project.clips.filter(
-    (c) => c.kind === 'image' && isClipActiveAt(c, currentTimeMs) && c.id !== activeBgImageId
+    (c) => c.kind === 'image' && isClipActiveAt(c, currentTimeMs) && !activeBgImageIds.includes(c.id)
   );
   // sizing mode: selected image is some chroma video's replacement background —
   // solo it fullscreen (video hidden) so Size/Position sliders visibly affect it
@@ -49,7 +49,7 @@ export default function Preview() {
         c.kind === 'video' &&
         (c.bgRemove ?? 'off') !== 'off' &&
         (c.bgReplace ?? 'black') === 'image' &&
-        c.bgImageClipId === selectedClip.id
+        bgImageIds(c).includes(selectedClip.id)
     )
       ? selectedClip
       : null;
@@ -266,7 +266,11 @@ export default function Preview() {
         {!sizingBg && activeVideo && activeVideo.kind === 'video' && !videoMissing &&
           (activeVideo.bgRemove ?? 'off') !== 'off' &&
           (activeVideo.bgReplace ?? 'black') === 'image' && (
-          <DraggableBgGhost videoId={activeVideo.id} frameRef={frameRef} />
+          <>
+            {bgImageIds(activeVideo).map((id) => (
+              <DraggableBgGhost key={id} videoId={activeVideo.id} clipId={id} frameRef={frameRef} />
+            ))}
+          </>
         )}
         {!sizingBg && activeImages.map((c) =>
           c.kind === 'image' && !c.src.startsWith('missing:') ? (
@@ -325,12 +329,6 @@ export default function Preview() {
 function PreviewBackdrop({ videoId }: { videoId: string }) {
   const clip = useEditor((s) => s.project.clips.find((c) => c.id === videoId));
   const currentTimeMs = useEditor((s) => s.currentTimeMs);
-  const bgImage = useEditor((s) => {
-    if (!clip || clip.kind !== 'video') return null;
-    if ((clip.bgRemove ?? 'off') === 'off' || (clip.bgReplace ?? 'black') !== 'image') return null;
-    const img = s.project.clips.find((c) => c.id === (clip.bgImageClipId ?? ''));
-    return img && img.kind === 'image' && !img.src.startsWith('missing:') ? img : null;
-  });
   if (!clip || clip.kind !== 'video' || (clip.bgRemove ?? 'off') === 'off') {
     return null;
   }
@@ -343,25 +341,39 @@ function PreviewBackdrop({ videoId }: { videoId: string }) {
       <div style={{ position: 'absolute', inset: 0, background: clip.bgColor ?? '#000000' }} />
     );
   }
-  if ((clip.bgReplace ?? 'black') === 'image' && bgImage && bgImage.kind === 'image') {
-    // Mirrors the export: outside the linked clip's own timeline window the
-    // backdrop falls back to black (renderer gates [bg] on startMs/durationMs).
-    if (!isClipActiveAt(bgImage, currentTimeMs)) return null;
-    const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
-    const pos = evalImageAt(bgImage, currentTimeMs);
+  if ((clip.bgReplace ?? 'black') === 'image') {
+    // One <img> per layer, bottom-to-top like the export's [bg] stack.
+    // Mirrors the export: outside a layer's own timeline window it falls back
+    // to the layers below (renderer gates each [bg] overlay on startMs/durationMs).
+    const layers = bgImageIds(clip)
+      .map((id) => useEditor.getState().project.clips.find((c) => c.id === id))
+      .filter(
+        (img): img is ImageClip =>
+          !!img && img.kind === 'image' && !img.src.startsWith('missing:') && isClipActiveAt(img, currentTimeMs)
+      );
+    if (layers.length === 0) return null;
     return (
-      <img
-        src={bgImage.src}
-        style={{
-          position: 'absolute',
-          left: `${50 + pos.x * 100}%`,
-          top: `${50 + pos.y * 100}%`,
-          transform: 'translate(-50%,-50%)',
-          width: `${s * 100}%`,
-          height: `${s * 100}%`,
-          objectFit: 'cover',
-        }}
-      />
+      <>
+        {layers.map((bgImage) => {
+          const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
+          const pos = evalImageAt(bgImage, currentTimeMs);
+          return (
+            <img
+              key={bgImage.id}
+              src={bgImage.src}
+              style={{
+                position: 'absolute',
+                left: `${50 + pos.x * 100}%`,
+                top: `${50 + pos.y * 100}%`,
+                transform: 'translate(-50%,-50%)',
+                width: `${s * 100}%`,
+                height: `${s * 100}%`,
+                objectFit: 'cover',
+              }}
+            />
+          );
+        })}
+      </>
     );
   }
   return null;
@@ -456,7 +468,7 @@ function DraggableImage({ clip, frameRef, cover }: { clip: ImageClip; frameRef: 
 // subject instead. Selection is deferred to pointer-up (a clean click): selecting
 // on pointer-down would jump into fullscreen sizing mode mid-drag and hide the
 // video reference being tracked against.
-function DraggableBgGhost({ videoId, frameRef }: { videoId: string; frameRef: React.RefObject<HTMLDivElement> }) {
+function DraggableBgGhost({ videoId, clipId, frameRef }: { videoId: string; clipId: string; frameRef: React.RefObject<HTMLDivElement> }) {
   const clip = useEditor((s) => s.project.clips.find((c) => c.id === videoId));
   const currentTimeMs = useEditor((s) => s.currentTimeMs);
   const selectedId = useEditor((s) => s.selectedId);
@@ -465,7 +477,8 @@ function DraggableBgGhost({ videoId, frameRef }: { videoId: string; frameRef: Re
   const bgImage = useEditor((s) => {
     if (!clip || clip.kind !== 'video') return null;
     if ((clip.bgRemove ?? 'off') === 'off' || (clip.bgReplace ?? 'black') !== 'image') return null;
-    const img = s.project.clips.find((c) => c.id === (clip.bgImageClipId ?? ''));
+    if (!bgImageIds(clip).includes(clipId)) return null;
+    const img = s.project.clips.find((c) => c.id === clipId);
     return img && img.kind === 'image' && !img.src.startsWith('missing:') ? img : null;
   });
   if (!clip || clip.kind !== 'video') return null;

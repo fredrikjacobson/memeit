@@ -51,7 +51,9 @@ export const VideoClipSchema = ClipBase.extend({
   // what to composite behind the keyed subject (only used when bgRemove === 'chroma')
   bgReplace: z.enum(['black', 'color', 'image']).default('black'),
   bgColor: z.string().default('#000000'),
-  bgImageClipId: z.string().optional(),
+  // one image id or an ordered list of them (first = bottom). Accepts a plain
+  // string so projects written before multi-background support keep working.
+  bgImageClipId: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 export const KeyframeSchema = z.object({
@@ -129,7 +131,10 @@ export const ProjectSchema = z.object({
 });
 
 export type VideoClip = z.infer<typeof VideoClipSchema>;
-export type ImageClip = z.infer<typeof ImageClipSchema>;
+/** Ordered background-image ids for a video clip (first = bottom). Accepts the legacy plain-string form. */
+export const bgImageIds = (clip: Pick<VideoClip, 'bgImageClipId'>): string[] => [
+  clip.bgImageClipId ?? [],
+].flat();export type ImageClip = z.infer<typeof ImageClipSchema>;
 export type TextClip = z.infer<typeof TextClipSchema>;
 export type AudioClip = z.infer<typeof AudioClipSchema>;
 export type AnyClip = z.infer<typeof AnyClipSchema>;

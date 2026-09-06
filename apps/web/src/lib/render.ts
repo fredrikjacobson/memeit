@@ -1,11 +1,12 @@
 import { useEditor } from '../store';
+import type { Project } from '@memeit/timeline';
 import { fileForUpload } from './bgai';
 import { slugify } from './projectName';
 
 export type RenderState = { status: string; warnings?: string[]; log?: string };
 
-export async function renderProject(onProgress: (s: string) => void): Promise<void> {
-  const { project } = useEditor.getState();
+/** Project JSON + attached media files (field name = clip id, mirroring the render API). */
+export function buildUploadFormData(project: Project): { fd: FormData; attached: number } {
   const fd = new FormData();
   fd.append('project', JSON.stringify(project));
 
@@ -24,6 +25,12 @@ export async function renderProject(onProgress: (s: string) => void): Promise<vo
       }
     }
   }
+  return { fd, attached };
+}
+
+export async function renderProject(onProgress: (s: string) => void): Promise<void> {
+  const { project } = useEditor.getState();
+  const { fd, attached } = buildUploadFormData(project);
   if (attached === 0 && project.clips.some((c) => c.kind !== 'text')) {
     throw new Error('No local files attached — re-import media (files from a previous session are not available).');
   }

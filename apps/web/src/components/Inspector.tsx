@@ -1,4 +1,4 @@
-import { evalImageAt, evalTextAt, uid } from '@memeit/timeline';
+import { bgImageIds, evalImageAt, evalTextAt, uid } from '@memeit/timeline';
 import { useEditor } from '../store';
 import { addCaptionPersist, addSubtitleAfterLast, findJoinPartner, focusTextEditor, joinSelectedWithNext, splitSelectedAtPlayhead } from '../lib/captions';
 import { Button } from './ui/button';
@@ -11,6 +11,7 @@ import { Slider } from './ui/slider';
 import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import AiBgPanel from './AiBgPanel';
+import TrackPanel from './TrackPanel';
 
 const PRESETS = [
   { label: '9:16', w: 1080, h: 1920 },
@@ -197,12 +198,13 @@ export default function Inspector() {
                 <label className="flex items-center gap-2 text-xs">X <Slider min={-0.5} max={0.5} step={0.01} value={[clip.x]} onValueChange={([v]) => updateClip(clip.id, { x: v ?? 0 } as never)} /></label>
                 <label className="flex items-center gap-2 text-xs">Y <Slider min={-0.5} max={0.5} step={0.01} value={[clip.y]} onValueChange={([v]) => updateClip(clip.id, { y: v ?? 0 } as never)} /></label>
               </div>
-              {project.clips.some((c) => c.kind === 'video' && c.bgImageClipId === clip.id) && (
+              {project.clips.some((c) => c.kind === 'video' && bgImageIds(c).includes(clip.id)) && (
                 <div className="text-[11px] text-muted-foreground">
                   Used as a replacement background — Size/Position above apply to the backdrop too. Add motion keyframes below to track the keyed area while staying clipped inside it. Select the image to size it fullscreen (video hidden).
                 </div>
               )}
               <KeyframeEditor clipId={clip.id} />
+              <TrackPanel clipId={clip.id} />
             </div>
           )}
           {clip.kind === 'video' && (
@@ -332,7 +334,7 @@ export default function Inspector() {
                     {(clip.bgReplace ?? 'black') === 'image' && (
                       <BackgroundImagePicker
                         videoId={clip.id}
-                        selectedId={clip.bgImageClipId}
+                        selectedIds={bgImageIds(clip)}
                       />
                     )}
                   </div>
@@ -355,7 +357,7 @@ export default function Inspector() {
     </div>
   );
 
-  function BackgroundImagePicker({ videoId, selectedId }: { videoId: string; selectedId?: string }) {
+  function BackgroundImagePicker({ videoId, selectedIds }: { videoId: string; selectedIds: string[] }) {
     const images = useEditor((s) => s.project.clips.filter((c) => c.kind === 'image'));
     const updateClipInner = useEditor((s) => s.updateClip);
     if (images.length === 0) {
@@ -365,19 +367,25 @@ export default function Inspector() {
         </div>
       );
     }
+    const toggle = (id: string) => {
+      const next = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
+      updateClipInner(
+        videoId,
+        { bgImageClipId: next.length === 0 ? undefined : next.length === 1 ? next[0] : next } as never
+      );
+    };
     return (
-      <select
-        className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-xs"
-        value={selectedId ?? ''}
-        onChange={(e) => updateClipInner(videoId, { bgImageClipId: e.target.value || undefined } as never)}
-      >
-        <option value="">— pick background image —</option>
+      <div className="flex flex-col gap-1">
+        <div className="text-[11px] text-muted-foreground">Layers stack bottom-to-top in ticked order.</div>
         {images.map((c) => (
-          <option key={c.id} value={c.id}>
-            {(c.kind === 'image' ? (c.name ?? c.id) : c.id).slice(0, 40)}
-          </option>
+          <label key={c.id} className="flex cursor-pointer items-center gap-2 text-xs">
+            <Checkbox checked={selectedIds.includes(c.id)} onCheckedChange={() => toggle(c.id)} />
+            <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+              {(c.kind === 'image' ? (c.name ?? c.id) : c.id).slice(0, 40)}
+            </span>
+          </label>
         ))}
-      </select>
+      </div>
     );
   }
 

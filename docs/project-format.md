@@ -87,7 +87,13 @@ Every clip (any kind) has these base fields:
 | `chromaSimilarity`, `chromaBlend` | `number` | 0–1, default `0.3` / `0.1` | no |
 | `bgReplace` | `'black' \| 'color' \| 'image'` | default `'black'` | no |
 | `bgColor` | `string` (hex) | default `'#000000'` | no |
-| `bgImageClipId` | `string` | id of an `image` clip | no |
+| `bgImageClipId` | `string` \| `string[]` | id(s) of `image` clip(s) | no |
+
+`bgImageClipId` accepts one id or an ordered list (first = bottom layer). Layers
+stack back-to-front behind the keyed subject — each with its own `scale`,
+position, keyframes, and timeline window — so e.g. a fullscreen backdrop plus
+a tracked card can share the keyed area. A plain string keeps older projects
+working unchanged.
 
 `fit`: `cover` fills and crops, `contain` fits inside with black letterboxing, `stretch`
 fills exactly (may distort). `bgRemove: 'ai'` expects `bgAiSrc` to already be a
