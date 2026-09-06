@@ -100,10 +100,12 @@ curl -OJ http://localhost:3001/api/renders/a1b2c3d4/file
 
 ## Automated verification
 
-`scripts/verify-project.mjs` validates a `Project` JSON against the schema and, unless
-`--no-render` is passed, self-starts a render-api instance in-process and drives this
-exact flow end-to-end — the same round trip described above, so it doubles as a
-regression check that this document stays accurate:
+`scripts/verify-project.mjs` (shortcut: `pnpm verify:api <project.json> [--assets id=path ...]`) validates a
+`Project` JSON — same verdict core as `memeit verify` (schema + semantic
+checks) — and, unless `--no-render` is passed, self-starts a render-api
+instance in-process and drives this exact flow end-to-end — the same round
+trip described above, so it doubles as a regression check that this document
+stays accurate:
 
 ```bash
 # schema only

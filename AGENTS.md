@@ -27,18 +27,18 @@ Examples in [`docs/examples/`](docs/examples/):
 
 ```bash
 pnpm install                                   # once
-pnpm --filter @memeit/timeline build          # once (memeit CLI bundles it from dist)
-pnpm --filter memeit build --no-ui             # once (builds dist/cli.js; dist/ is gitignored)
 cp docs/examples/text-only.json /tmp/meme/project.json
-pnpm verify:local /tmp/meme/project.json       # schema + semantic + file checks
-pnpm render:local /tmp/meme/project.json --out /tmp/meme/out.mp4
+pnpm verify /tmp/meme/project.json             # schema + semantic + file checks (~0.1s)
+pnpm render /tmp/meme/project.json --out /tmp/meme/out.mp4
 ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/meme/out.mp4
 ```
 
-`verify:local` / `render:local` are root shortcuts for the `memeit verify` /
-`memeit render` subcommands (`packages/memeit/src/cli.ts`). Only `ffmpeg` +
-`ffprobe` on PATH are needed. The full end-to-end check (schema + real render
-through the API server) is `pnpm verify <project.json>` (`scripts/verify-project.mjs`).
+`verify` / `render` build their (small, UI-less) prerequisites and delegate to
+the `memeit verify` / `memeit render` subcommands (`packages/memeit/src/cli.ts`).
+Only `ffmpeg` + `ffprobe` on PATH are needed. The slower end-to-end check
+(same verdict core + real render through the API server) is
+`pnpm verify:api <project.json> [--assets id=path ...]`
+(`scripts/verify-project.mjs`).
 
 ## `memeit verify` issue codes
 
@@ -48,7 +48,7 @@ runs `ProjectSchema` plus the semantic checks in
 pure, no I/O). Exit 0 = valid (warnings ok) · 1 = errors (or warnings with
 `--strict`) · 2 = usage/IO.
 
-- `ERROR` (blocks `render:local`): `SCHEMA`, `JSON_PARSE`, `DUPLICATE_ID`
+- `ERROR` (blocks `render`): `SCHEMA`, `JSON_PARSE`, `DUPLICATE_ID`
   (the schema can't enforce this — see `docs/project-format.md#known-limitations`),
   `CLIP_START_BEYOND_DURATION`, `KEYFRAME_OUT_OF_RANGE`, `SRC_EMPTY`,
   `CANVAS_WIDTH/HEIGHT`.
@@ -67,14 +67,14 @@ graph as the server (H.264 + AAC, `+faststart`).
 1. Copy the closest example; keep `"$schema"`.
 2. Read `docs/project-format.md#known-limitations` first (single base video,
    font-size keyframes preview-only, caller-owned id uniqueness).
-3. `pnpm verify:local` → fix every `ERROR`; read every `WARN`.
-4. `pnpm render:local --out …` → confirm with `ffprobe`
+3. `pnpm verify` → fix every `ERROR`; read every `WARN`.
+4. `pnpm render --out …` → confirm with `ffprobe`
    (duration ≈ `durationMs`).
-5. For the canonical check, `pnpm verify <project.json>` (builds + renders
-   through the real API).
+5. For the canonical check, `pnpm verify:api <project.json>` (same verdict
+   core + real render through the API server).
 
 Repo map: `packages/timeline` (schemas/types/semantic verify) ·
 `packages/renderer` (`buildFfmpegArgs`) · `services/render-api` (HTTP API +
 text PNG pre-render) · `packages/memeit` (CLI: serve/verify/render) ·
 `apps/web` (editor UI) · `docs/` (agent docs + examples) ·
-`scripts/verify-project.mjs` (canonical schema + API render check).
+`scripts/verify-project.mjs` (same verdict core + API render check).

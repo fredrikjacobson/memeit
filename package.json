@@ -8,11 +8,13 @@
     "dev:web": "pnpm --filter @memeit/web dev",
     "dev:api": "pnpm --filter @memeit/render-api dev",
     "build": "pnpm -r build",
+    "build:local": "pnpm --filter @memeit/timeline build && pnpm --filter @memeit/renderer build && pnpm --filter memeit build --no-ui",
+    "build:api": "pnpm --filter @memeit/timeline build && pnpm --filter @memeit/renderer build && pnpm --filter @memeit/render-api build",
     "typecheck": "pnpm -r typecheck",
-    "verify": "pnpm -r build && node scripts/verify-project.mjs",
-    "verify:schema": "pnpm --filter @memeit/timeline gen:schema:check",
-    "verify:local": "node packages/memeit/dist/cli.js verify",
-    "render:local": "node packages/memeit/dist/cli.js render"
+    "verify": "pnpm build:local && node packages/memeit/dist/cli.js verify",
+    "render": "pnpm build:local && node packages/memeit/dist/cli.js render",
+    "verify:api": "pnpm build:api && node scripts/verify-project.mjs",
+    "verify:schema": "pnpm --filter @memeit/timeline gen:schema:check"
   },
   "devDependencies": {
     "typescript": "^5.6.2"
