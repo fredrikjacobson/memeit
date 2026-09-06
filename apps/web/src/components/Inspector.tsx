@@ -1,4 +1,4 @@
-import { evalTextAt, uid } from '@memeit/timeline';
+import { evalImageAt, evalTextAt, uid } from '@memeit/timeline';
 import { useEditor } from '../store';
 import { addCaptionPersist, addSubtitleAfterLast, findJoinPartner, focusTextEditor, joinSelectedWithNext, splitSelectedAtPlayhead } from '../lib/captions';
 import { Button } from './ui/button';
@@ -199,9 +199,10 @@ export default function Inspector() {
               </div>
               {project.clips.some((c) => c.kind === 'video' && c.bgImageClipId === clip.id) && (
                 <div className="text-[11px] text-muted-foreground">
-                  Used as a replacement background — Size/Position above apply to the backdrop too. Select the image to size it fullscreen (video hidden).
+                  Used as a replacement background — Size/Position above apply to the backdrop too. Add motion keyframes below to track the keyed area while staying clipped inside it. Select the image to size it fullscreen (video hidden).
                 </div>
               )}
+              <KeyframeEditor clipId={clip.id} />
             </div>
           )}
           {clip.kind === 'video' && (
@@ -429,10 +430,10 @@ export default function Inspector() {
 
   function KeyframeEditor({ clipId }: { clipId: string }) {
     const c = useEditor.getState().project.clips.find((x) => x.id === clipId);
-    if (!c || c.kind !== 'text') return null;
+    if (!c || (c.kind !== 'text' && c.kind !== 'image')) return null;
     const kfs = [...(c.keyframes ?? [])].sort((a, b) => a.offsetMs - b.offsetMs);
     const offset = Math.max(0, Math.round(currentTimeMs - c.startMs));
-    const cur = evalTextAt(c, currentTimeMs);
+    const cur = c.kind === 'text' ? evalTextAt(c, currentTimeMs) : evalImageAt(c, currentTimeMs);
 
     const addKf = () => {
       // replace keyframe within 120ms to avoid stacking
@@ -443,7 +444,10 @@ export default function Inspector() {
         return;
       }
       const id = uid();
-      updateClip(c.id, { keyframes: [...kfs, { id, offsetMs: offset, x: cur.x, y: cur.y, fontSize: cur.fontSize }] } as never);
+      const kf = c.kind === 'text'
+        ? { id, offsetMs: offset, x: cur.x, y: cur.y, fontSize: evalTextAt(c, currentTimeMs).fontSize }
+        : { id, offsetMs: offset, x: cur.x, y: cur.y };
+      updateClip(c.id, { keyframes: [...kfs, kf] } as never);
       selectKeyframe(id);
     };
 

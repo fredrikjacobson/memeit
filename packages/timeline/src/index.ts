@@ -54,21 +54,6 @@ export const VideoClipSchema = ClipBase.extend({
   bgImageClipId: z.string().optional(),
 });
 
-export const ImageClipSchema = ClipBase.extend({
-  kind: z.literal('image'),
-  src: z.string(),
-  scale: z.number().min(0.1).max(4).default(1),
-  x: z.number().default(0),
-  y: z.number().default(0),
-  // client-side AI background removal (single-frame PNG cached in bgAiSrc)
-  bgRemove: z.enum(['off', 'ai']).default('off').optional(),
-  bgAiSrc: z.string().optional(),
-  bgAiStatus: z.enum(['idle', 'loading', 'processing', 'done', 'error']).default('idle').optional(),
-  bgAiProgress: z.number().min(0).max(1).default(0).optional(),
-  bgAiModel: z.string().optional(),
-  bgAiError: z.string().optional(),
-});
-
 export const KeyframeSchema = z.object({
   id: z.string(),
   // offset from clip.startMs — robust when clip is moved
@@ -81,6 +66,25 @@ export const KeyframeSchema = z.object({
 });
 
 export type Keyframe = z.infer<typeof KeyframeSchema>;
+
+export const ImageClipSchema = ClipBase.extend({
+  kind: z.literal('image'),
+  src: z.string(),
+  scale: z.number().min(0.1).max(4).default(1),
+  x: z.number().default(0),
+  y: z.number().default(0),
+  // Position (x/y) keyframes — honored by both the live preview and the
+  // ffmpeg export, including when this image is a chroma-key replacement
+  // background (video.bgImageClipId). Same interpolation as text.
+  keyframes: z.array(KeyframeSchema).default([]),
+  // client-side AI background removal (single-frame PNG cached in bgAiSrc)
+  bgRemove: z.enum(['off', 'ai']).default('off').optional(),
+  bgAiSrc: z.string().optional(),
+  bgAiStatus: z.enum(['idle', 'loading', 'processing', 'done', 'error']).default('idle').optional(),
+  bgAiProgress: z.number().min(0).max(1).default(0).optional(),
+  bgAiModel: z.string().optional(),
+  bgAiError: z.string().optional(),
+});
 
 export const TextClipSchema = ClipBase.extend({
   kind: z.literal('text'),
@@ -141,6 +145,31 @@ export const activeClipsAt = (project: Project, tMs: number) =>
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export type TextTransform = { x: number; y: number; fontSize: number };
+export type ImageTransform = { x: number; y: number };
+
+export function evalImageAt(
+  clip: Pick<ImageClip, 'x' | 'y' | 'startMs' | 'keyframes'>,
+  absTimeMs: number
+): ImageTransform {
+  const base = { x: clip.x, y: clip.y };
+  const kfs = [...(clip.keyframes ?? [])].sort((a, b) => a.offsetMs - b.offsetMs);
+  if (kfs.length === 0) return base;
+  const offset = absTimeMs - clip.startMs;
+  const pts = [{ id: '__base__', offsetMs: 0, ...base }, ...kfs];
+  const first = pts[0]!;
+  if (offset <= first.offsetMs) return { x: first.x, y: first.y };
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    if (offset >= a.offsetMs && offset <= b.offsetMs) {
+      const span = Math.max(1, b.offsetMs - a.offsetMs);
+      const t = (offset - a.offsetMs) / span;
+      return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) };
+    }
+  }
+  const last = pts[pts.length - 1]!;
+  return { x: last.x, y: last.y };
+}
 
 export function evalTextAt(clip: TextClip, absTimeMs: number): TextTransform {
   const base = { x: clip.x, y: clip.y, fontSize: clip.fontSize };
@@ -187,7 +216,21 @@ export function textPositionKeyframePoints(
   return [base, ...kfs];
 }
 
-export function nearestKeyframe(clip: TextClip, absTimeMs: number, tolMs = 150) {
+export function imagePositionKeyframePoints(
+  clip: Pick<ImageClip, 'x' | 'y' | 'keyframes'>
+): { offsetMs: number; x: number; y: number }[] {
+  const base = { offsetMs: 0, x: clip.x, y: clip.y };
+  const kfs = [...(clip.keyframes ?? [])]
+    .sort((a, b) => a.offsetMs - b.offsetMs)
+    .map((k) => ({ offsetMs: k.offsetMs, x: k.x, y: k.y }));
+  return [base, ...kfs];
+}
+
+export function nearestKeyframe(
+  clip: Pick<TextClip, 'startMs' | 'keyframes'> | Pick<ImageClip, 'startMs' | 'keyframes'>,
+  absTimeMs: number,
+  tolMs = 150
+) {
   const offset = absTimeMs - clip.startMs;
   let best: Keyframe | null = null;
   let bestD = Infinity;

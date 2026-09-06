@@ -170,7 +170,7 @@ export async function addMediaFiles(files: FileList | File[]) {
         useEditor.getState().updateProject((p) => ({ ...p, durationMs }));
       }
     } else if (kind === 'image') {
-      state.addClip({ ...base, kind: 'image', durationMs: 3000, scale: 1, x: 0, y: 0 });
+      state.addClip({ ...base, kind: 'image', durationMs: 3000, scale: 1, x: 0, y: 0, keyframes: [] });
     } else {
       const probed = await probeAudioDuration(url);
       const durationMs = probed ? Math.max(500, Math.min(300_000, probed)) : 10_000;

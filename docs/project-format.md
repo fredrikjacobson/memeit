@@ -17,10 +17,10 @@ and test-render one from the command line.
 
 ## Known limitations — read this first
 
-1. **Font-size keyframes are preview-only.** Position (`x`/`y`) keyframes on a text clip
-   *are* honored by the final render, but a keyframe's `fontSize` is not — the export
-   always uses the clip's base `fontSize`. Only animate `x`/`y` if you need the exported
-   video (not just the live editor preview) to match.
+1. **Font-size keyframes are preview-only.** Position (`x`/`y`) keyframes on `text`
+   *and* `image` clips *are* honored by the final render, but a keyframe's `fontSize`
+   is not — the export always uses the clip's base `fontSize`. Only animate `x`/`y`
+   if you need the exported video (not just the live editor preview) to match.
 2. **Only one video clip renders.** If a project has multiple `video` clips, only the one
    with the earliest `startMs` is used as the render's base layer; the rest are silently
    dropped (with a warning in the render job's `warnings` array — see `docs/render-api.md`).
@@ -102,6 +102,7 @@ pre-cut asset.
 | `src` | `string` | — | **yes** (descriptive only) |
 | `scale` | `number` | 0.1–4, default `1` | no |
 | `x`, `y` | `number` | default `0` | no |
+| `keyframes` | array of `Keyframe` (position only, same shape as text) | default `[]` | no |
 | `bgRemove` | `'off' \| 'ai'` | default `'off'` | no |
 | `bgAiSrc`, `bgAiStatus`, `bgAiProgress`, `bgAiModel`, `bgAiError` | — | client-side AI cutout state | no |
 
@@ -129,6 +130,10 @@ pre-cut asset.
 
 There's always an implicit keyframe at `offsetMs: 0` equal to the clip's own base `x`/`y`
 — you don't need to add one yourself unless you want to explicitly override it.
+The same applies to `image` clips (used for motion-tracked overlays and for
+chroma-key replacement backgrounds via `video.bgImageClipId` — a keyframed bg
+image stays clipped inside the keyed area while it moves, because it composites
+*behind* the keyed subject).
 
 ### `audio`
 

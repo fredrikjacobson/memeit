@@ -1,5 +1,5 @@
 import type { AudioClip, ImageClip, Project, TextClip, VideoClip } from '@memeit/timeline';
-import { textPositionKeyframePoints } from '@memeit/timeline';
+import { imagePositionKeyframePoints, textPositionKeyframePoints } from '@memeit/timeline';
 
 export type ResolvedAsset = {
   clipId: string;
@@ -17,7 +17,10 @@ export type RenderPlan = {
 // - base = earliest video fitted to WxH (cover/contain/stretch) or black color
 // - base video may have chroma-key ('chroma') or client-side AI cutout ('ai')
 //   background removal, composited over black / solid color / another image clip
-// - image overlays scaled by clip.scale, positioned from normalized x/y
+//   (the linked bg image honors its own scale + keyframed x/y, so a tracked
+//   card stays clipped inside the keyed area while it moves)
+// - image overlays scaled by clip.scale, positioned from normalized x/y or a
+//   time-varying expression when the image has position keyframes
 // - text overlays are pre-rendered full-frame PNGs (see text.ts); clips with no
 //   position keyframes overlay at a fixed 0:0 (position baked into the PNG),
 //   clips with keyframes render anchored at canvas center and overlay at a
@@ -98,6 +101,52 @@ export function buildFfmpegArgs(
   }
 
   const filters: string[] = [];
+  const between = (sMs: number, dMs: number) => `between(t,${(sMs / 1000).toFixed(3)},${((sMs + dMs) / 1000).toFixed(3)})`;
+
+  // Builds an ffmpeg expression that's flat before the first point, linear
+  // between points, and flat after the last — mirrors the timeline package's
+  // evalTextAt()/evalImageAt() interpolation so export motion matches the
+  // preview. Commas are fine unescaped here (same as the existing
+  // between(t,a,b) calls) since the whole expression is wrapped in single
+  // quotes at the call site, which ffmpeg's filtergraph parser takes literally.
+  const piecewiseExpr = (points: { t: number; v: number }[]): string => {
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    // Collapse points sharing a timestamp (e.g. an explicit keyframe at the
+    // clip's own offsetMs 0, coinciding with the implicit base point) down
+    // to the last one — otherwise the zero-length segment between them
+    // divides by (a value that rounds to) 0.000 once formatted for ffmpeg.
+    const pts: { t: number; v: number }[] = [];
+    for (const p of sorted) {
+      if (pts.length > 0 && pts[pts.length - 1]!.t.toFixed(3) === p.t.toFixed(3)) pts[pts.length - 1] = p;
+      else pts.push(p);
+    }
+    const seg = (i: number): string => {
+      if (i === pts.length - 1) return pts[i]!.v.toFixed(3);
+      const a = pts[i]!;
+      const b = pts[i + 1]!;
+      const span = Math.max(1e-6, b.t - a.t);
+      const lerp = `(${a.v.toFixed(3)}+(${(b.v - a.v).toFixed(3)})*(t-${a.t.toFixed(3)})/${span.toFixed(3)})`;
+      return `if(lt(t,${b.t.toFixed(3)}),${lerp},${seg(i + 1)})`;
+    };
+    return pts.length === 1 ? pts[0]!.v.toFixed(3) : `if(lt(t,${pts[0]!.t.toFixed(3)}),${pts[0]!.v.toFixed(3)},${seg(0)})`;
+  };
+
+  // Time-varying overlay offset for a keyframed image clip, in pixels from
+  // canvas center — mirrors evalImageAt(). Static clips get a constant.
+  const imageOffsetExpr = (c: ImageClip, W: number, H: number): { xExpr: string; yExpr: string } => {
+    if ((c.keyframes ?? []).length === 0) {
+      return {
+        xExpr: `(W-w)/2+${Math.round(c.x * W)}`,
+        yExpr: `(H-h)/2+${Math.round(c.y * H)}`,
+      };
+    }
+    const points = imagePositionKeyframePoints(c);
+    const xExpr =
+      `(W-w)/2+(${piecewiseExpr(points.map((p) => ({ t: (c.startMs + p.offsetMs) / 1000, v: p.x * W })))})`;
+    const yExpr =
+      `(H-h)/2+(${piecewiseExpr(points.map((p) => ({ t: (c.startMs + p.offsetMs) / 1000, v: p.y * H })))})`;
+    return { xExpr, yExpr };
+  };
   const hasBase = baseClip && idxOf.has(`video:${baseClip.id}`);
   const chromaOn = hasBase && (baseClip as VideoClip).bgRemove === 'chroma';
   // AI cutout: the uploaded file is already a transparent WebM (client-side
@@ -143,15 +192,19 @@ export function buildFfmpegArgs(
       const bgIdx = bgImage ? idxOf.get(`image:${bgImage.id}`) : undefined;
       if (replace === 'image' && bgImage && bgIdx != null) {
         // honor the linked image clip's own size/position: cover-fill, zoom by
-        // scale, then center with x/y offset on a black canvas (s=1,x=0,y=0 = exact fill)
+        // scale, then center with x/y offset on a black canvas (s=1,x=0,y=0 = exact fill).
+        // Position keyframes on the bg image are honored via a time-varying
+        // overlay expression so a tracked card stays clipped inside the key.
         const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
-        const xb = Math.round((bgImage.x ?? 0) * W);
-        const yb = Math.round((bgImage.y ?? 0) * H);
+        const { xExpr, yExpr } = imageOffsetExpr(bgImage, W, H);
         filters.push(
           `[${bgIdx}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps},scale=iw*${s}:ih*${s},format=yuva420p[bgs]`
         );
         filters.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${DUR},format=yuv420p[bgc]`);
-        filters.push(`[bgc][bgs]overlay=x='(W-w)/2+${xb}':y='(H-h)/2+${yb}':shortest=1,format=yuv420p[bg]`);
+        // Gate on the linked clip's own timeline window: outside
+        // startMs..startMs+durationMs the overlay is disabled and [bg]
+        // falls back to black (overlay passes the main input through).
+        filters.push(`[bgc][bgs]overlay=x='${xExpr}':y='${yExpr}':enable='${between(bgImage.startMs, bgImage.durationMs)}':shortest=1,format=yuv420p[bg]`);
       } else {
         if (replace === 'image') {
           warnings.push(
@@ -179,35 +232,6 @@ export function buildFfmpegArgs(
 
   let cur = '[base]';
   let vN = 0;
-  const between = (sMs: number, dMs: number) => `between(t,${(sMs / 1000).toFixed(3)},${((sMs + dMs) / 1000).toFixed(3)})`;
-
-  // Builds an ffmpeg expression that's flat before the first point, linear
-  // between points, and flat after the last — mirrors the timeline package's
-  // evalTextAt() interpolation so export motion matches the preview. Commas
-  // are fine unescaped here (same as the existing between(t,a,b) calls
-  // below) since the whole expression is wrapped in single quotes at the
-  // call site, which ffmpeg's filtergraph parser takes literally.
-  const piecewiseExpr = (points: { t: number; v: number }[]): string => {
-    const sorted = [...points].sort((a, b) => a.t - b.t);
-    // Collapse points sharing a timestamp (e.g. an explicit keyframe at the
-    // clip's own offsetMs 0, coinciding with the implicit base point) down
-    // to the last one — otherwise the zero-length segment between them
-    // divides by (a value that rounds to) 0.000 once formatted for ffmpeg.
-    const pts: { t: number; v: number }[] = [];
-    for (const p of sorted) {
-      if (pts.length > 0 && pts[pts.length - 1]!.t.toFixed(3) === p.t.toFixed(3)) pts[pts.length - 1] = p;
-      else pts.push(p);
-    }
-    const seg = (i: number): string => {
-      if (i === pts.length - 1) return pts[i]!.v.toFixed(3);
-      const a = pts[i]!;
-      const b = pts[i + 1]!;
-      const span = Math.max(1e-6, b.t - a.t);
-      const lerp = `(${a.v.toFixed(3)}+(${(b.v - a.v).toFixed(3)})*(t-${a.t.toFixed(3)})/${span.toFixed(3)})`;
-      return `if(lt(t,${b.t.toFixed(3)}),${lerp},${seg(i + 1)})`;
-    };
-    return pts.length === 1 ? pts[0]!.v.toFixed(3) : `if(lt(t,${pts[0]!.t.toFixed(3)}),${pts[0]!.v.toFixed(3)},${seg(0)})`;
-  };
 
   // background image doubles as the [bg] source — don't also draw it on top
   const bgImageId =
@@ -227,11 +251,10 @@ export function buildFfmpegArgs(
     const ov = `ov${vN}`;
     const s = Math.max(0.1, Math.min(4, c.scale));
     filters.push(`[${i}:v]scale=iw*${s}:ih*${s},format=yuva420p[${ov}]`);
-    const xb = Math.round(c.x * W);
-    const yb = Math.round(c.y * H);
+    const { xExpr, yExpr } = imageOffsetExpr(c, W, H);
     const out = `v${vN}`;
     filters.push(
-      `${cur}[${ov}]overlay=x='(W-w)/2+${xb}':y='(H-h)/2+${yb}':enable='${between(c.startMs, c.durationMs)}'[${out}]`
+      `${cur}[${ov}]overlay=x='${xExpr}':y='${yExpr}':enable='${between(c.startMs, c.durationMs)}'[${out}]`
     );
     cur = `[${out}]`;
     vN += 1;
