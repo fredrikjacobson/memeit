@@ -1,4 +1,4 @@
-import { evalTextAt } from '@memeit/timeline';
+import { evalImageAt, evalTextAt } from '@memeit/timeline';
 import { useEditor, uid } from '../store';
 import { addCaptionPersist, addSubtitleAfterLast, focusTextEditor, joinSelectedWithNext, splitSelectedAtPlayhead } from './captions';
 
@@ -51,17 +51,20 @@ function duplicateSelected() {
 function addKeyframeHere() {
   const st = useEditor.getState();
   const c = selectedClip();
-  if (!c || c.kind !== 'text') return;
+  if (!c || (c.kind !== 'text' && c.kind !== 'image')) return;
   const offset = Math.max(0, Math.round(st.currentTimeMs - c.startMs));
   if (offset > c.durationMs) return;
-  const cur = evalTextAt(c, st.currentTimeMs);
+  const cur = c.kind === 'text' ? evalTextAt(c, st.currentTimeMs) : evalImageAt(c, st.currentTimeMs);
   const near = (c.keyframes ?? []).find((k) => Math.abs(k.offsetMs - offset) < 120);
   if (near) {
     st.selectKeyframe(near.id);
     return;
   }
   const id = uid();
-  st.updateClip(c.id, { keyframes: [...(c.keyframes ?? []), { id, offsetMs: offset, x: cur.x, y: cur.y, fontSize: cur.fontSize }] } as never);
+  const kf = c.kind === 'text'
+    ? { id, offsetMs: offset, x: cur.x, y: cur.y, fontSize: evalTextAt(c, st.currentTimeMs).fontSize }
+    : { id, offsetMs: offset, x: cur.x, y: cur.y };
+  st.updateClip(c.id, { keyframes: [...(c.keyframes ?? []), kf] } as never);
   st.selectKeyframe(id);
 }
 

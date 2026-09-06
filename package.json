@@ -8,7 +8,7 @@
     "dev:web": "pnpm --filter @memeit/web dev",
     "dev:api": "pnpm --filter @memeit/render-api dev",
     "build": "pnpm -r build",
-    "build:local": "pnpm --filter @memeit/timeline build && pnpm --filter @memeit/renderer build && pnpm --filter memeit build --no-ui",
+    "build:local": "pnpm --filter @memeit/timeline build && pnpm --filter @memeit/renderer build && pnpm --filter meme-it build --no-ui",
     "build:api": "pnpm --filter @memeit/timeline build && pnpm --filter @memeit/renderer build && pnpm --filter @memeit/render-api build",
     "typecheck": "pnpm -r typecheck",
     "verify": "pnpm build:local && node packages/memeit/dist/cli.js verify",

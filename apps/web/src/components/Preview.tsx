@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { evalTextAt, isClipActiveAt, nearestKeyframe, uid, type TextClip } from '@memeit/timeline';
+import { evalImageAt, evalTextAt, isClipActiveAt, nearestKeyframe, uid, type ImageClip, type TextClip } from '@memeit/timeline';
 import { useEditor } from '../store';
 import { aiDisplaySrc, useBgAi } from '../lib/bgai';
 import { Button } from './ui/button';
@@ -168,18 +168,7 @@ export default function Preview() {
       >
         {sizingBg && sizingBg.kind === 'image' ? (
           <>
-            <img
-              src={sizingBg.src}
-              style={{
-                position: 'absolute',
-                left: `${50 + (sizingBg.x ?? 0) * 100}%`,
-                top: `${50 + (sizingBg.y ?? 0) * 100}%`,
-                transform: 'translate(-50%,-50%)',
-                width: `${Math.max(0.1, Math.min(4, sizingBg.scale ?? 1)) * 100}%`,
-                height: `${Math.max(0.1, Math.min(4, sizingBg.scale ?? 1)) * 100}%`,
-                objectFit: 'cover',
-              }}
-            />
+            <DraggableImage clip={sizingBg} frameRef={frameRef} cover />
             <div
               style={{
                 position: 'absolute', top: 8, left: 8, fontSize: 11,
@@ -188,7 +177,7 @@ export default function Preview() {
               }}
               title="Video hidden while you size its replacement background"
             >
-              🖼 sizing background — video hidden
+              🖼 sizing background — video hidden · drag to move
             </div>
           </>
         ) : activeVideo && activeVideo.kind === 'video' && !videoMissing ? (
@@ -222,7 +211,7 @@ export default function Preview() {
                 title={
                   (activeVideo.bgRemove ?? 'off') === 'ai'
                     ? 'On-device AI cutout'
-                    : 'Chroma-key applies on export — preview shows the original'
+                    : 'Chroma-key applies on export — backdrop ghosted at 50% so you can see it; drag the ghost to track'
                 }
               >
                 {(activeVideo.bgRemove ?? 'off') === 'ai'
@@ -274,21 +263,14 @@ export default function Preview() {
             </div>
           </div>
         )}
+        {!sizingBg && activeVideo && activeVideo.kind === 'video' && !videoMissing &&
+          (activeVideo.bgRemove ?? 'off') !== 'off' &&
+          (activeVideo.bgReplace ?? 'black') === 'image' && (
+          <DraggableBgGhost videoId={activeVideo.id} frameRef={frameRef} />
+        )}
         {!sizingBg && activeImages.map((c) =>
           c.kind === 'image' && !c.src.startsWith('missing:') ? (
-            <img
-              key={`${c.id}:${aiDisplaySrc(c) ?? c.src}`}
-              src={aiDisplaySrc(c) ?? c.src}
-              onError={() => useEditor.getState().markUnsupported(c.id)}
-              style={{
-                position: 'absolute',
-                left: `${50 + c.x * 100}%`,
-                top: `${50 + c.y * 100}%`,
-                transform: 'translate(-50%,-50%)',
-                maxWidth: `${c.scale * 60}%`,
-                borderRadius: 6,
-              }}
-            />
+            <DraggableImage key={c.id} clip={c} frameRef={frameRef} />
           ) : null
         )}
         {activeTexts.map((c) =>
@@ -334,7 +316,7 @@ export default function Preview() {
         </span>
       </div>
       <div className="text-[11px] text-muted-foreground">
-        Drag text on canvas to move · auto-creates keyframe when moved off start
+        Drag text / images on canvas to move · auto-creates keyframe when moved off start · green-screen backdrop shows as a ghost — drag it to track
       </div>
     </div>
   );
@@ -342,6 +324,7 @@ export default function Preview() {
 
 function PreviewBackdrop({ videoId }: { videoId: string }) {
   const clip = useEditor((s) => s.project.clips.find((c) => c.id === videoId));
+  const currentTimeMs = useEditor((s) => s.currentTimeMs);
   const bgImage = useEditor((s) => {
     if (!clip || clip.kind !== 'video') return null;
     if ((clip.bgRemove ?? 'off') === 'off' || (clip.bgReplace ?? 'black') !== 'image') return null;
@@ -361,14 +344,18 @@ function PreviewBackdrop({ videoId }: { videoId: string }) {
     );
   }
   if ((clip.bgReplace ?? 'black') === 'image' && bgImage && bgImage.kind === 'image') {
+    // Mirrors the export: outside the linked clip's own timeline window the
+    // backdrop falls back to black (renderer gates [bg] on startMs/durationMs).
+    if (!isClipActiveAt(bgImage, currentTimeMs)) return null;
     const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
+    const pos = evalImageAt(bgImage, currentTimeMs);
     return (
       <img
         src={bgImage.src}
         style={{
           position: 'absolute',
-          left: `${50 + (bgImage.x ?? 0) * 100}%`,
-          top: `${50 + (bgImage.y ?? 0) * 100}%`,
+          left: `${50 + pos.x * 100}%`,
+          top: `${50 + pos.y * 100}%`,
           transform: 'translate(-50%,-50%)',
           width: `${s * 100}%`,
           height: `${s * 100}%`,
@@ -380,6 +367,188 @@ function PreviewBackdrop({ videoId }: { videoId: string }) {
   return null;
 }
 
+function DraggableImage({ clip, frameRef, cover }: { clip: ImageClip; frameRef: React.RefObject<HTMLDivElement>; cover?: boolean }) {
+  const currentTimeMs = useEditor((s) => s.currentTimeMs);
+  const selectedId = useEditor((s) => s.selectedId);
+  const selectedKeyframeId = useEditor((s) => s.selectedKeyframeId);
+  const drag = useRef<{ startX: number; startY: number; origX: number; origY: number; kfId: string | null; isNew: boolean } | null>(null);
+
+  const t = evalImageAt(clip, currentTimeMs);
+  const isSel = selectedId === clip.id;
+  const nearKf = nearestKeyframe(clip, currentTimeMs, 200);
+
+  const commit = (nx: number, ny: number) => {
+    const st = useEditor.getState();
+    const cx = Math.max(-0.6, Math.min(0.6, nx));
+    const cy = Math.max(-0.6, Math.min(0.6, ny));
+    const offset = Math.max(0, Math.round(currentTimeMs - clip.startMs));
+
+    // dragging near start → move base position
+    if (offset < 200) {
+      st.updateClip(clip.id, { x: cx, y: cy });
+      return { kfId: null as string | null, isNew: false };
+    }
+    const existing = nearestKeyframe(clip, currentTimeMs, 250);
+    if (existing) {
+      const kfs = (clip.keyframes ?? []).map((k) => (k.id === existing.id ? { ...k, x: cx, y: cy } : k));
+      st.updateClip(clip.id, { keyframes: kfs } as never);
+      return { kfId: existing.id, isNew: false };
+    }
+    if (st.autoKey) {
+      const id = uid();
+      const kfs = [...(clip.keyframes ?? []), { id, offsetMs: offset, x: cx, y: cy }];
+      st.updateClip(clip.id, { keyframes: kfs } as never);
+      st.selectKeyframe(id);
+      return { kfId: id, isNew: true };
+    }
+    st.updateClip(clip.id, { x: cx, y: cy });
+    return { kfId: null, isNew: false };
+  };
+
+  const s = Math.max(0.1, Math.min(4, clip.scale ?? 1));
+  return (
+    <img
+      src={aiDisplaySrc(clip) ?? clip.src}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      onError={() => useEditor.getState().markUnsupported(clip.id)}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        const st = useEditor.getState();
+        st.select(clip.id);
+        if (nearKf) st.selectKeyframe(nearKf.id);
+        st.setPlaying(false);
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        drag.current = { startX: e.clientX, startY: e.clientY, origX: t.x, origY: t.y, kfId: nearKf?.id ?? null, isNew: false };
+      }}
+      onPointerMove={(e) => {
+        if (!drag.current || !frameRef.current) return;
+        const rect = frameRef.current.getBoundingClientRect();
+        const dx = (e.clientX - drag.current.startX) / rect.width;
+        const dy = (e.clientY - drag.current.startY) / rect.height;
+        const r = commit(drag.current.origX + dx, drag.current.origY + dy);
+        drag.current.kfId = r.kfId;
+      }}
+      onPointerUp={() => {
+        drag.current = null;
+      }}
+      title="Drag to move — creates keyframe"
+      style={{
+        position: 'absolute',
+        left: `${50 + t.x * 100}%`,
+        top: `${50 + t.y * 100}%`,
+        transform: 'translate(-50%,-50%)',
+        ...(cover
+          ? { width: `${s * 100}%`, height: `${s * 100}%`, objectFit: 'cover' as const }
+          : { maxWidth: `${s * 60}%`, borderRadius: 6 }),
+        cursor: 'move',
+        userSelect: 'none',
+        touchAction: 'none',
+        outline: isSel ? '2px dashed var(--ring)' : 'none',
+        outlineOffset: 4,
+      }}
+    />
+  );
+}
+
+// Replacement background shown ghosted *above* the opaque preview video so it
+// can be seen (and dragged) at all — export composites it behind the keyed
+// subject instead. Selection is deferred to pointer-up (a clean click): selecting
+// on pointer-down would jump into fullscreen sizing mode mid-drag and hide the
+// video reference being tracked against.
+function DraggableBgGhost({ videoId, frameRef }: { videoId: string; frameRef: React.RefObject<HTMLDivElement> }) {
+  const clip = useEditor((s) => s.project.clips.find((c) => c.id === videoId));
+  const currentTimeMs = useEditor((s) => s.currentTimeMs);
+  const selectedId = useEditor((s) => s.selectedId);
+  const selectedKeyframeId = useEditor((s) => s.selectedKeyframeId);
+  const drag = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
+  const bgImage = useEditor((s) => {
+    if (!clip || clip.kind !== 'video') return null;
+    if ((clip.bgRemove ?? 'off') === 'off' || (clip.bgReplace ?? 'black') !== 'image') return null;
+    const img = s.project.clips.find((c) => c.id === (clip.bgImageClipId ?? ''));
+    return img && img.kind === 'image' && !img.src.startsWith('missing:') ? img : null;
+  });
+  if (!clip || clip.kind !== 'video') return null;
+  // AI cutout with a processed file is genuinely transparent in preview — the
+  // real backdrop already shows through, so no ghost needed.
+  if ((clip.bgRemove ?? 'off') === 'ai' && aiDisplaySrc(clip)) return null;
+  if (!bgImage || bgImage.kind !== 'image') return null;
+  if (!isClipActiveAt(bgImage, currentTimeMs)) return null;
+
+  const pos = evalImageAt(bgImage, currentTimeMs);
+  const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
+  const nearKf = nearestKeyframe(bgImage, currentTimeMs, 200);
+  const isSel = selectedId === bgImage.id || (nearKf != null && selectedKeyframeId === nearKf.id);
+
+  const commit = (nx: number, ny: number) => {
+    const st = useEditor.getState();
+    const cx = Math.max(-0.6, Math.min(0.6, nx));
+    const cy = Math.max(-0.6, Math.min(0.6, ny));
+    const offset = Math.max(0, Math.round(currentTimeMs - bgImage.startMs));
+    if (offset < 200) {
+      st.updateClip(bgImage.id, { x: cx, y: cy });
+      return;
+    }
+    const existing = nearestKeyframe(bgImage, currentTimeMs, 250);
+    if (existing) {
+      const kfs = (bgImage.keyframes ?? []).map((k) => (k.id === existing.id ? { ...k, x: cx, y: cy } : k));
+      st.updateClip(bgImage.id, { keyframes: kfs } as never);
+      return;
+    }
+    if (st.autoKey) {
+      const id = uid();
+      st.updateClip(bgImage.id, { keyframes: [...(bgImage.keyframes ?? []), { id, offsetMs: offset, x: cx, y: cy }] } as never);
+      st.selectKeyframe(id);
+      return;
+    }
+    st.updateClip(bgImage.id, { x: cx, y: cy });
+  };
+
+  return (
+    <img
+      src={bgImage.src}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        useEditor.getState().setPlaying(false);
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        drag.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, moved: false };
+      }}
+      onPointerMove={(e) => {
+        if (!drag.current || !frameRef.current) return;
+        const rect = frameRef.current.getBoundingClientRect();
+        const dx = (e.clientX - drag.current.startX) / rect.width;
+        const dy = (e.clientY - drag.current.startY) / rect.height;
+        if (Math.abs(e.clientX - drag.current.startX) + Math.abs(e.clientY - drag.current.startY) > 3) {
+          drag.current.moved = true;
+        }
+        commit(drag.current.origX + dx, drag.current.origY + dy);
+      }}
+      onPointerUp={() => {
+        // Clean click (no drag) selects the backdrop for fullscreen sizing.
+        if (drag.current && !drag.current.moved) useEditor.getState().select(bgImage.id);
+        drag.current = null;
+      }}
+      title="Replacement background (ghost) — drag to track · click to size"
+      style={{
+        position: 'absolute',
+        left: `${50 + pos.x * 100}%`,
+        top: `${50 + pos.y * 100}%`,
+        transform: 'translate(-50%,-50%)',
+        width: `${s * 100}%`,
+        height: `${s * 100}%`,
+        objectFit: 'cover',
+        opacity: 0.5,
+        cursor: 'move',
+        userSelect: 'none',
+        touchAction: 'none',
+        outline: isSel ? '2px dashed var(--ring)' : 'none',
+        outlineOffset: 4,
+      }}
+    />
+  );
+}
 function DraggableText({ clip, frameRef }: { clip: TextClip; frameRef: React.RefObject<HTMLDivElement> }) {
   const currentTimeMs = useEditor((s) => s.currentTimeMs);
   const selectedId = useEditor((s) => s.selectedId);

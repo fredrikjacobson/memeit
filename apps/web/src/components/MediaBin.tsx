@@ -101,7 +101,7 @@ export default function MediaBin() {
                 {missing ? '⚠️ ' : ''}
                 {unsupported && !missing ? '🔇 ' : ''}
                   {c.kind}: {(c.kind === 'text' ? c.text : c.name ?? c.id).slice(0, 28).replace(/\n/g, ' ')}
-                  {c.kind === 'text' && (c.keyframes?.length ?? 0) > 0 && (
+                  {(c.kind === 'text' || c.kind === 'image') && (c.keyframes?.length ?? 0) > 0 && (
                     <Badge variant="outline" className="ml-1.5 px-1 py-0 text-[10px] text-ring">◆{c.keyframes!.length}</Badge>
                   )}
                 </span>

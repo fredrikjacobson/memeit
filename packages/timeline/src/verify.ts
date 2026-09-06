@@ -183,8 +183,8 @@ export function verifyProject(input: unknown, opts: VerifyOptions = {}): VerifyR
       );
     }
 
-    if (c.kind === 'text') {
-      if (c.durationMs < 800) {
+    if (c.kind === 'text' || c.kind === 'image') {
+      if (c.kind === 'text' && c.durationMs < 800) {
         warnings.push(warn('TEXT_SHORT', `"${c.id}" shows for only ${c.durationMs}ms — viewers can't read it; use >=800ms`, c.id));
       }
       for (const k of c.keyframes ?? []) {

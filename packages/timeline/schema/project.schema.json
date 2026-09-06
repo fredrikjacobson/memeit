@@ -210,6 +210,45 @@
                     "type": "number",
                     "default": 0
                   },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "offsetMs": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 300000
+                        },
+                        "x": {
+                          "type": "number",
+                          "minimum": -1,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": -1,
+                          "maximum": 1
+                        },
+                        "fontSize": {
+                          "type": "number",
+                          "minimum": 12,
+                          "maximum": 200
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "offsetMs",
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "default": []
+                  },
                   "bgRemove": {
                     "type": "string",
                     "enum": [
@@ -313,39 +352,7 @@
                   "keyframes": {
                     "type": "array",
                     "items": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "offsetMs": {
-                          "type": "number",
-                          "minimum": 0,
-                          "maximum": 300000
-                        },
-                        "x": {
-                          "type": "number",
-                          "minimum": -1,
-                          "maximum": 1
-                        },
-                        "y": {
-                          "type": "number",
-                          "minimum": -1,
-                          "maximum": 1
-                        },
-                        "fontSize": {
-                          "type": "number",
-                          "minimum": 12,
-                          "maximum": 200
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "offsetMs",
-                        "x",
-                        "y"
-                      ],
-                      "additionalProperties": false
+                      "$ref": "#/definitions/Project/properties/clips/items/anyOf/1/properties/keyframes/items"
                     },
                     "default": []
                   }
