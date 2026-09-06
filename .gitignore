@@ -5,6 +5,7 @@ data/
 bin/
 *.local
 
+memeit-data/
 apps/*/dist/
 services/*/dist/
 packages/*/dist/
