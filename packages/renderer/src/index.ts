@@ -1,5 +1,5 @@
 import type { AudioClip, ImageClip, Project, TextClip, VideoClip } from '@memeit/timeline';
-import { imagePositionKeyframePoints, textPositionKeyframePoints } from '@memeit/timeline';
+import { bgImageIds, imagePositionKeyframePoints, textPositionKeyframePoints } from '@memeit/timeline';
 
 export type ResolvedAsset = {
   clipId: string;
@@ -183,32 +183,53 @@ export function buildFfmpegArgs(
         // AI file already carries alpha — keep it through the fit
         filters.push(`[0:v]${fitChain},format=yuva420p[ck]`);
       }
-      // replacement background behind the keyed subject
+      // replacement background(s) behind the keyed subject, bottom-to-top in
+      // bgImageClipId order. Each honors its own scale + keyframed x/y, so a
+      // tracked card stays clipped inside the key while it moves.
       const replace = (c.bgReplace ?? 'black') as 'black' | 'color' | 'image';
-      const bgImage =
+      const bgImages =
         replace === 'image'
-          ? images.find((im) => im.id === (c.bgImageClipId ?? ''))
-          : undefined;
-      const bgIdx = bgImage ? idxOf.get(`image:${bgImage.id}`) : undefined;
-      if (replace === 'image' && bgImage && bgIdx != null) {
-        // honor the linked image clip's own size/position: cover-fill, zoom by
-        // scale, then center with x/y offset on a black canvas (s=1,x=0,y=0 = exact fill).
-        // Position keyframes on the bg image are honored via a time-varying
-        // overlay expression so a tracked card stays clipped inside the key.
-        const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
-        const { xExpr, yExpr } = imageOffsetExpr(bgImage, W, H);
-        filters.push(
-          `[${bgIdx}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps},scale=iw*${s}:ih*${s},format=yuva420p[bgs]`
-        );
+          ? bgImageIds(c)
+              .map((id) => images.find((im) => im.id === id))
+              .filter((im): im is ImageClip => im != null)
+          : [];
+      for (const id of bgImageIds(c)) {
+        if (!images.some((im) => im.id === id)) {
+          warnings.push(`Background image "${id}" matches no image clip — skipped.`);
+        }
+      }
+      const withFiles = bgImages.filter((im) => {
+        if (!idxOf.has(`image:${im.id}`)) {
+          warnings.push(`Background image "${im.name ?? im.id}" missing file — skipped.`);
+          return false;
+        }
+        return true;
+      });
+      if (replace === 'image' && withFiles.length > 0) {
         filters.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${DUR},format=yuv420p[bgc]`);
-        // Gate on the linked clip's own timeline window: outside
-        // startMs..startMs+durationMs the overlay is disabled and [bg]
-        // falls back to black (overlay passes the main input through).
-        filters.push(`[bgc][bgs]overlay=x='${xExpr}':y='${yExpr}':enable='${between(bgImage.startMs, bgImage.durationMs)}':shortest=1,format=yuv420p[bg]`);
+        let bgCur = '[bgc]';
+        withFiles.forEach((bgImage, n) => {
+          // cover-fill, zoom by scale, then center with x/y offset on the
+          // running backdrop (s=1,x=0,y=0 = exact fill for the first layer).
+          // Transparent PNGs blend over lower layers; opaque ones cover.
+          const s = Math.max(0.1, Math.min(4, bgImage.scale ?? 1));
+          const { xExpr, yExpr } = imageOffsetExpr(bgImage, W, H);
+          const bgi = idxOf.get(`image:${bgImage.id}`)!;
+          const bgs = `bgs${n}`;
+          const out = n === withFiles.length - 1 ? 'bg' : `bgx${n}`;
+          filters.push(
+            `[${bgi}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps},scale=iw*${s}:ih*${s},format=yuva420p[${bgs}]`
+          );
+          // Gate on each layer's own timeline window: outside
+          // startMs..startMs+durationMs the overlay is disabled and the lower
+          // layers show through (overlay passes the main input through).
+          filters.push(`${bgCur}[${bgs}]overlay=x='${xExpr}':y='${yExpr}':enable='${between(bgImage.startMs, bgImage.durationMs)}':shortest=1,format=yuva420p[${out}]`);
+          bgCur = `[${out}]`;
+        });
       } else {
         if (replace === 'image') {
           warnings.push(
-            `Background image "${c.bgImageClipId ?? '(none)'}" missing — fell back to black.`
+            `No usable background image for "${c.id}" (none linked or all missing files) — fell back to black.`
           );
         }
         const raw = (c.bgColor ?? '#000000').trim();
@@ -233,19 +254,14 @@ export function buildFfmpegArgs(
   let cur = '[base]';
   let vN = 0;
 
-  // background image doubles as the [bg] source — don't also draw it on top
-  const bgImageId =
-    keyedOn ? ((baseClip as VideoClip).bgImageClipId ?? null) : null;
+  // background images double as [bg] sources — don't also draw them on top
   const bgInUse =
-    keyedOn &&
-    (baseClip as VideoClip).bgReplace === 'image' &&
-    bgImageId != null &&
-    idxOf.has(`image:${bgImageId}`)
-      ? bgImageId
-      : null;
+    keyedOn && (baseClip as VideoClip).bgReplace === 'image'
+      ? new Set(bgImageIds(baseClip as VideoClip).filter((id) => idxOf.has(`image:${id}`)))
+      : new Set<string>();
 
   for (const c of images) {
-    if (bgInUse != null && c.id === bgInUse) continue;
+    if (bgInUse.has(c.id)) continue;
     const i = idxOf.get(`image:${c.id}`);
     if (i == null) continue;
     const ov = `ov${vN}`;

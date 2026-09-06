@@ -1,4 +1,4 @@
-import { ProjectSchema, type AnyClip, type Project } from './index.js';
+import { bgImageIds, ProjectSchema, type AnyClip, type Project } from './index.js';
 
 export type VerifyIssueLevel = 'error' | 'warning';
 
@@ -237,16 +237,20 @@ export function verifyProject(input: unknown, opts: VerifyOptions = {}): VerifyR
           warnings.push(warn('COLOR_FORMAT', `"${c.id}" chromaColor "${c.chromaColor}" is not a #RRGGBB hex color`, c.id));
         }
         if (c.bgReplace === 'image') {
-          if (!c.bgImageClipId) {
+          const ids = bgImageIds(c);
+          if (ids.length === 0) {
             warnings.push(warn('BG_IMAGE_MISSING', `"${c.id}" bgReplace is "image" but bgImageClipId is unset — falls back to black`, c.id));
-          } else if (!imageIds.has(c.bgImageClipId)) {
-            warnings.push(
-              warn(
-                'BG_IMAGE_MISSING',
-                `"${c.id}" bgImageClipId "${c.bgImageClipId}" matches no image clip — falls back to black`,
-                c.id
-              )
-            );
+          }
+          for (const id of ids) {
+            if (!imageIds.has(id)) {
+              warnings.push(
+                warn(
+                  'BG_IMAGE_MISSING',
+                  `"${c.id}" bgImageClipId "${id}" matches no image clip — skipped (falls back to black if none remain)`,
+                  c.id
+                )
+              );
+            }
           }
         }
         if (c.bgReplace === 'color' && !HEX_RE.test((c.bgColor ?? '').trim())) {

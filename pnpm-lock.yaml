@@ -120,6 +120,9 @@ importers:
 
   packages/memeit:
     dependencies:
+      '@memeit/tracker':
+        specifier: workspace:*
+        version: link:../tracker
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -191,6 +194,19 @@ importers:
         specifier: ^5.6.2
         version: 5.6.2
 
+  packages/tracker:
+    dependencies:
+      '@memeit/timeline':
+        specifier: workspace:*
+        version: link:../timeline
+      sharp:
+        specifier: ^0.35.4
+        version: 0.35.4(@types/node@20.16.0)
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.6.2
+
   services/render-api:
     dependencies:
       '@google-cloud/text-to-speech':
@@ -202,6 +218,9 @@ importers:
       '@memeit/timeline':
         specifier: workspace:*
         version: link:../../packages/timeline
+      '@memeit/tracker':
+        specifier: workspace:*
+        version: link:../../packages/tracker
       cors:
         specifier: ^2.8.5
         version: 2.8.5
