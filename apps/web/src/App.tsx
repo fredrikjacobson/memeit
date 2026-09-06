@@ -5,6 +5,7 @@ import MediaBin from './components/MediaBin';
 import Inspector from './components/Inspector';
 import CheatSheet from './components/CheatSheet';
 import Logo from './components/Logo';
+import ProjectMenu from './components/ProjectMenu';
 import { Button } from './components/ui/button';
 import { Card } from './components/ui/card';
 import { Keyboard } from 'lucide-react';
@@ -91,10 +92,12 @@ export default function App() {
       }}
     >
       <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-2.5">
-        <div className="flex items-center gap-2 text-[15px] font-extrabold tracking-tight">
+        <div className="flex min-w-0 items-center gap-2 text-[15px] font-extrabold tracking-tight">
           <Logo size={26} /> memeit
         </div>
-        <span className="text-xs text-muted-foreground">meme video editor · 10s clips, up to 3 min · <Kbd>?</Kbd> shortcuts</span>
+        <div className="flex min-w-0 flex-1 justify-center">
+          <ProjectName />
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => setSheet((v) => !v)} title="Keyboard shortcuts (?)"><Keyboard className="size-5" /></Button>
           <TopActions />
@@ -150,14 +153,6 @@ export default function App() {
         </div>
       )}
     </div>
-  );
-}
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="whitespace-nowrap rounded-md border border-border border-b-2 bg-background px-1.5 py-px font-[inherit] text-[11px]">
-      {children}
-    </kbd>
   );
 }
 
@@ -223,37 +218,32 @@ function usePanelLayout() {
   };
 }
 
+function ProjectName() {
+  const name = useEditor((s) => s.project.name ?? '');
+  return (
+    <input
+      value={name}
+      maxLength={120}
+      onChange={(e) => useEditor.getState().updateProject((p) => ({ ...p, name: e.target.value }))}
+      placeholder="Untitled"
+      aria-label="Project name"
+      title="Project name — used for export filenames"
+      className="w-56 min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 text-center text-sm font-semibold text-foreground placeholder:text-muted-foreground/60 hover:border-border focus:border-ring focus:outline-none"
+    />
+  );
+}
+
 function TopActions() {
-  const project = useEditor((s) => s.project);
+  const clipCount = useEditor((s) => s.project.clips.length);
   const [busy, setBusy] = useState<string | null>(null);
   const newProject = async () => {
-    if (project.clips.length > 0 && !window.confirm('Start a new project? Unsaved timeline will be replaced (export JSON first if needed).')) return;
+    if (clipCount > 0 && !window.confirm('Start a new project? Unsaved timeline will be replaced (export from ⋯ first if needed).')) return;
     const { createDefaultProject } = await import('@memeit/timeline');
     const st = useEditor.getState();
     st.setPlaying(false);
     st.updateProject(() => createDefaultProject());
     st.select(null);
     st.setTime(0);
-  };
-  const exportJson = async () => {
-    const { serializeProject } = await import('./lib/persist');
-    const blob = new Blob([JSON.stringify(serializeProject(project), null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'memeit-project.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  };
-  const exportDump = async () => {
-    const { exportDump } = await import('./lib/dump');
-    setBusy('Packing…');
-    try {
-      await exportDump();
-      setBusy(null);
-    } catch (e) {
-      setBusy(null);
-      alert(`Dump export failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
   };
   const render = async () => {
     const { renderProject } = await import('./lib/render');
@@ -272,12 +262,7 @@ function TopActions() {
       <Button variant="ghost" size="sm" onClick={newProject} disabled={!!busy} title="Clear timeline and start fresh">
         New
       </Button>
-      <Button variant="ghost" size="sm" onClick={exportJson} disabled={!!busy}>
-        Export JSON
-      </Button>
-      <Button variant="ghost" size="sm" onClick={exportDump} disabled={!!busy} title="Download project.json + all media as one .zip">
-        Export ZIP
-      </Button>
+      <ProjectMenu disabled={!!busy} onBusy={setBusy} />
       <Button size="sm" onClick={render} disabled={!!busy}>
         {busy ? '⏳ Rendering…' : '⬇ Render MP4'}
       </Button>

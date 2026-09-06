@@ -115,6 +115,8 @@ export const AnyClipSchema = z.discriminatedUnion('kind', [
 
 export const ProjectSchema = z.object({
   version: z.literal(1),
+  // display name (editable in the topbar) — also seeds export filenames
+  name: z.string().max(120).optional(),
   width: z.number().default(1080),
   height: z.number().default(1920),
   fps: z.number().min(15).max(60).default(30),
@@ -201,6 +203,7 @@ export function nearestKeyframe(clip: TextClip, absTimeMs: number, tolMs = 150) 
 
 export const createDefaultProject = (): Project => ({
   version: 1,
+  name: 'Untitled',
   width: 1080,
   height: 1920,
   fps: 30,

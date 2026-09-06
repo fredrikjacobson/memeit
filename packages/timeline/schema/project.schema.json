@@ -8,6 +8,10 @@
           "type": "number",
           "const": 1
         },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
         "width": {
           "type": "number",
           "default": 1080

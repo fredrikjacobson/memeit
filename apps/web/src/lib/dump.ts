@@ -2,6 +2,7 @@ import { ProjectSchema, type Project } from '@memeit/timeline';
 import { clipIdFromRef, loadAsset, saveAsset } from './assets';
 import { getFileForUrl } from './media';
 import { fitProjectToClips, rehydrateProject, serializeProject } from './persist';
+import { slugify } from './projectName';
 import { useEditor } from '../store';
 
 // Portable data-dump format (v1) — a ZIP bundle:
@@ -98,7 +99,7 @@ export async function exportDump(): Promise<{ attached: number; missing: string[
   const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'memeit-dump.zip';
+  a.download = `${slugify(project.name, 'memeit-dump')}.zip`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   if (missing.length > 0) {
