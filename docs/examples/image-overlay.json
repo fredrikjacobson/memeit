@@ -1,0 +1,51 @@
+{
+  "$schema": "../../packages/timeline/schema/project.schema.json",
+  "version": 1,
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "durationMs": 5000,
+  "clips": [
+    {
+      "id": "photo",
+      "kind": "image",
+      "name": "photo.jpg",
+      "src": "assets/photo.jpg",
+      "startMs": 0,
+      "durationMs": 5000,
+      "scale": 1.2,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "id": "top",
+      "kind": "text",
+      "text": "POV: YOU READ THE DOCS",
+      "startMs": 0,
+      "durationMs": 2500,
+      "font": "Impact",
+      "fontSize": 84,
+      "color": "#ffffff",
+      "strokeColor": "#000000",
+      "strokeWidth": 4,
+      "x": 0,
+      "y": -0.35,
+      "keyframes": []
+    },
+    {
+      "id": "bottom",
+      "kind": "text",
+      "text": "AND IT ACTUALLY RENDERED",
+      "startMs": 2500,
+      "durationMs": 2500,
+      "font": "Impact",
+      "fontSize": 84,
+      "color": "#ffff00",
+      "strokeColor": "#000000",
+      "strokeWidth": 4,
+      "x": 0,
+      "y": 0.35,
+      "keyframes": []
+    }
+  ]
+}

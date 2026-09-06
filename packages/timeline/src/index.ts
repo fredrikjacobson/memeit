@@ -5,6 +5,10 @@ export * from './srt.js';
 // here — it imports ProjectSchema from this file, so re-exporting it would
 // create a circular index.ts <-> json-schema.ts dependency. Import it via
 // the `@memeit/timeline/json-schema` subpath instead (see package.json).
+// verify.js is re-exported: it also imports ProjectSchema from this file,
+// but only touches it inside function bodies (deferred use), so the cycle
+// is safe at module-init time.
+export * from './verify.js';
 
 // 10s typical, 2-3min max -> cap at 5min for safety, 30fps max
 export const ClipBase = z.object({

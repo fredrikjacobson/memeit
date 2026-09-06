@@ -1,0 +1,40 @@
+{
+  "$schema": "../../packages/timeline/schema/project.schema.json",
+  "version": 1,
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "durationMs": 3000,
+  "clips": [
+    {
+      "id": "top",
+      "kind": "text",
+      "text": "WHEN THE BUILD PASSES",
+      "startMs": 0,
+      "durationMs": 3000,
+      "font": "Impact",
+      "fontSize": 96,
+      "color": "#ffffff",
+      "strokeColor": "#000000",
+      "strokeWidth": 5,
+      "x": 0,
+      "y": -0.35,
+      "keyframes": []
+    },
+    {
+      "id": "bottom",
+      "kind": "text",
+      "text": "ON THE FIRST TRY",
+      "startMs": 0,
+      "durationMs": 3000,
+      "font": "Impact",
+      "fontSize": 96,
+      "color": "#ffffff",
+      "strokeColor": "#000000",
+      "strokeWidth": 5,
+      "x": 0,
+      "y": 0.35,
+      "keyframes": []
+    }
+  ]
+}

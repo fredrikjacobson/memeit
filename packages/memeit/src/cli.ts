@@ -6,6 +6,8 @@ import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../../../services/render-api/src/app.js';
+import { runRender } from './render-cmd.js';
+import { runVerify } from './verify-cmd.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,7 +33,16 @@ function embeddedPublicDir(): string | null {
 function printHelp(): void {
   console.log(`memeit v${pkgVersion()} — local meme video editor (server + web UI)
 
-Usage: memeit [options]
+Usage: memeit [options] | memeit <command> [options]
+
+Commands (headless, agent-friendly — no server needed):
+  verify <project.json>   Validate a project file (schema + media files)
+  render <project.json>   Render a project file to MP4 locally (needs ffmpeg)
+  (no command)            Start the server + web UI (default)
+
+Examples:
+  memeit verify docs/examples/text-only.json
+  memeit render docs/examples/text-only.json --out /tmp/meme.mp4
 
 Options:
   -p, --port <n>       Port to listen on (default: $PORT or 3001)
@@ -115,7 +126,14 @@ async function checkBin(bin: string, args: string[]): Promise<string | null> {
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const [sub, ...rest] = argv;
+  // Headless subcommands (validate / render project JSON without a server).
+  if (sub === 'verify') process.exit(runVerify(rest));
+  if (sub === 'render') process.exit(await runRender(rest));
+  if (sub === 'help') return printHelp();
+
+  const args = parseArgs(argv);
   if (args.help) return printHelp();
   if (args.version) {
     console.log(pkgVersion());
