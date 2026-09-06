@@ -1,10 +1,11 @@
 {
-  "name": "@fredrikjacobson/memeit",
+  "name": "meme-it",
   "version": "0.1.0",
   "description": "Meme video editor — local single-user server + web UI. Run with `npx memeit`.",
   "license": "MIT",
   "type": "module",
   "bin": {
+    "meme-it": "./dist/cli.js",
     "memeit": "./dist/cli.js"
   },
   "files": [

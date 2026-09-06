@@ -13,9 +13,9 @@ pnpm --filter @memeit/web dev          # :5173
 ## Run as one server (`npx memeit`)
 
 ```bash
-pnpm --filter @fredrikjacobson/memeit build
+pnpm --filter meme-it build
 node packages/memeit/dist/cli.js --no-open   # serves API + built UI on :3001
-# after `npm publish`: npx @fredrikjacobson/memeit
+# after `npm publish`: npx meme-it
 ```
 
 Publishable package in `packages/memeit/` (`bin: memeit`, tsup bundle + embedded

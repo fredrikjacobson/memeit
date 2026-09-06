@@ -1,11 +1,11 @@
-# @fredrikjacobson/memeit (npx distribution)
+# meme-it (npx distribution)
 
 Local meme video editor — one command runs the API + web UI:
 
 ```bash
-npx @fredrikjacobson/memeit
-npx @fredrikjacobson/memeit --port 4200 --no-open
-npx @fredrikjacobson/memeit --data-dir ~/.memeit-data
+npx meme-it
+npx meme-it --port 4200 --no-open
+npx meme-it --data-dir ~/.memeit-data
 ```
 
 ## How it works
@@ -24,17 +24,17 @@ npx @fredrikjacobson/memeit --data-dir ~/.memeit-data
 
 ```bash
 pnpm install
-pnpm --filter @fredrikjacobson/memeit build        # web UI -> public/, server -> dist/cli.js
-pnpm --filter @fredrikjacobson/memeit typecheck
+pnpm --filter meme-it build        # web UI -> public/, server -> dist/cli.js
+pnpm --filter meme-it typecheck
 cd packages/memeit && npm publish --access public  # note: npm can't see pnpm workspaces, publish from the package dir
 ```
 
 Test the tarball locally before publishing:
 
 ```bash
-pnpm --filter @fredrikjacobson/memeit build
+pnpm --filter meme-it build
 (cd packages/memeit && npm pack --pack-destination /tmp)
-npx --yes /tmp/fredrikjacobson-memeit-0.1.0.tgz --help
+npx --yes /tmp/meme-it-0.1.0.tgz --help
 ```
 
 ## System deps (not bundled)

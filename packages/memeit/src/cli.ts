@@ -50,9 +50,9 @@ System deps (warn, don't fail, when missing):
   ffmpeg + ffprobe on PATH (rendering), yt-dlp on PATH or YTDLP_PATH (YouTube import)
 
 Examples:
-  npx @fredrikjacobson/memeit
-  npx @fredrikjacobson/memeit --port 4200 --no-open
-  npx @fredrikjacobson/memeit --data-dir ~/.memeit-data
+  npx meme-it
+  npx meme-it --port 4200 --no-open
+  npx meme-it --data-dir ~/.memeit-data
 `);
 }
 
