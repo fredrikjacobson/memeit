@@ -1,6 +1,6 @@
 {
   "name": "meme-it",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Meme video editor — local single-user server + web UI. Run with `npx memeit`.",
   "license": "MIT",
   "type": "module",
